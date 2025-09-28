@@ -1,0 +1,59 @@
+[package]
+name = "guideai-desktop"
+version = "0.1.0"
+description = "GuideAI Desktop Menubar App"
+authors = ["GuideAI Team"]
+license = "MIT"
+repository = ""
+default-run = "guideai-desktop"
+edition = "2021"
+rust-version = "1.60"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[build-dependencies]
+tauri-build = { version = "1.5.5", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+tauri = { version = "1.8.1", features = ["macos-private-api", "shell-open", "system-tray"] }
+tauri-plugin-positioner = { version = "1.0.4", features = ["system-tray"] }
+dirs = "5.0"
+tokio = { version = "1", features = ["full"] }
+urlencoding = "2.1"
+open = "5.0"
+# HTTP server for OAuth callback
+warp = "0.3"
+# URL parsing for OAuth callback
+url = "2.0"
+# File watching for config changes
+notify = "6.0"
+# HTTP client for API requests
+reqwest = { version = "0.11", features = ["json"] }
+# Additional tokio utilities
+tokio-util = "0.7"
+# Date/time handling
+chrono = { version = "0.4", features = ["serde"] }
+# Shell expansion for paths
+shellexpand = "3.1"
+# Logging with rotation
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "time", "json", "chrono", "env-filter"] }
+tracing-appender = "0.2"
+# Base64 encoding for file content
+base64 = "0.22"
+# UUID generation
+uuid = { version = "1.0", features = ["v4"] }
+
+# macOS specific dependencies
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = "0.25"
+objc = "0.2"
+
+[features]
+# this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.
+# If you use cargo directly instead of tauri's cli you can use this feature flag to switch between tauri's `dev` and `build` modes.
+# DO NOT REMOVE!!
+custom-protocol = [ "tauri/custom-protocol" ]

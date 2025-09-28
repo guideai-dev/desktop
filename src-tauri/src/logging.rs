@@ -1,0 +1,246 @@
+use crate::config::{ensure_logs_dir, get_logs_dir};
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
+use std::fs::{File, OpenOptions};
+use std::io::{BufRead, BufReader, Write};
+use std::path::PathBuf;
+use std::sync::Mutex;
+use tracing::{error, info, warn};
+use tracing_subscriber::{
+    fmt::{self},
+    layer::SubscriberExt,
+    util::SubscriberInitExt,
+    EnvFilter, Layer,
+};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogEntry {
+    pub timestamp: String,
+    pub level: String,
+    pub provider: String,
+    pub message: String,
+    pub details: Option<serde_json::Value>,
+}
+
+static LOGGER_INITIALIZED: std::sync::Once = std::sync::Once::new();
+use std::sync::LazyLock;
+#[allow(dead_code)]
+static LOG_WRITERS: LazyLock<Mutex<std::collections::HashMap<String, File>>> = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+pub fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
+    ensure_logs_dir()?;
+
+    LOGGER_INITIALIZED.call_once(|| {
+        let env_filter = EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::new("info"));
+
+        // Console logging for development - compact format
+        let console_layer = fmt::layer()
+            .compact()
+            .with_target(false)
+            .with_thread_ids(false)
+            .with_thread_names(false)
+            .with_filter(env_filter.clone());
+
+        tracing_subscriber::registry()
+            .with(console_layer)
+            .init();
+    });
+
+    Ok(())
+}
+
+pub fn log_provider_event(
+    provider: &str,
+    level: &str,
+    message: &str,
+    details: Option<serde_json::Value>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    ensure_logs_dir()?;
+
+    let log_entry = LogEntry {
+        timestamp: Utc::now().to_rfc3339(),
+        level: level.to_string(),
+        provider: provider.to_string(),
+        message: message.to_string(),
+        details,
+    };
+
+    // Log to tracing system
+    match level {
+        "ERROR" => error!(provider = provider, "{}", message),
+        "WARN" => warn!(provider = provider, "{}", message),
+        _ => info!(provider = provider, "{}", message),
+    }
+
+    // Also write to provider-specific file
+    write_provider_log_entry(provider, &log_entry)?;
+
+    Ok(())
+}
+
+fn write_provider_log_entry(
+    provider: &str,
+    entry: &LogEntry,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let logs_dir = get_logs_dir()?;
+    let log_file_path = logs_dir.join(format!("{}.log", provider));
+
+    // Check if we need to rotate the log file
+    if should_rotate_log(&log_file_path)? {
+        rotate_log_file(&log_file_path)?;
+    }
+
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_file_path)?;
+
+    // Write JSON entry
+    let json_line = serde_json::to_string(entry)?;
+    writeln!(file, "{}", json_line)?;
+    file.flush()?;
+
+    Ok(())
+}
+
+fn should_rotate_log(log_file_path: &PathBuf) -> Result<bool, Box<dyn std::error::Error>> {
+    if !log_file_path.exists() {
+        return Ok(false);
+    }
+
+    let metadata = std::fs::metadata(log_file_path)?;
+    const MAX_SIZE: u64 = 10 * 1024 * 1024; // 10MB
+
+    Ok(metadata.len() > MAX_SIZE)
+}
+
+fn rotate_log_file(log_file_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    // Rotate existing backup files (4 -> 5, 3 -> 4, etc.)
+    for i in (1..5).rev() {
+        let current_backup = log_file_path.with_extension(format!("log.{}", i));
+        let next_backup = log_file_path.with_extension(format!("log.{}", i + 1));
+
+        if current_backup.exists() {
+            std::fs::rename(&current_backup, &next_backup)?;
+        }
+    }
+
+    // Move current log to .1
+    if log_file_path.exists() {
+        let first_backup = log_file_path.with_extension("log.1");
+        std::fs::rename(log_file_path, first_backup)?;
+    }
+
+    Ok(())
+}
+
+pub fn read_provider_logs(
+    provider: &str,
+    max_lines: Option<usize>,
+) -> Result<Vec<LogEntry>, Box<dyn std::error::Error>> {
+    let logs_dir = get_logs_dir()?;
+    let log_file_path = logs_dir.join(format!("{}.log", provider));
+
+    if !log_file_path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let file = File::open(&log_file_path)?;
+    let reader = BufReader::new(file);
+    let mut entries = Vec::new();
+
+    for line in reader.lines() {
+        match line {
+            Ok(line_content) => {
+                if let Ok(entry) = serde_json::from_str::<LogEntry>(&line_content) {
+                    entries.push(entry);
+                }
+            }
+            Err(e) => {
+                eprintln!("Error reading log line: {}", e);
+            }
+        }
+    }
+
+    // Always return in reverse chronological order (newest first)
+    entries.reverse();
+
+    // If max_lines is specified, return only the first N entries (which are now the newest)
+    if let Some(max) = max_lines {
+        if entries.len() > max {
+            entries.truncate(max);
+        }
+    }
+
+    Ok(entries)
+}
+
+// Convenience functions for different log levels
+pub fn log_info(provider: &str, message: &str) -> Result<(), Box<dyn std::error::Error>> {
+    log_provider_event(provider, "INFO", message, None)
+}
+
+pub fn log_warn(provider: &str, message: &str) -> Result<(), Box<dyn std::error::Error>> {
+    log_provider_event(provider, "WARN", message, None)
+}
+
+pub fn log_error(provider: &str, message: &str) -> Result<(), Box<dyn std::error::Error>> {
+    log_provider_event(provider, "ERROR", message, None)
+}
+
+#[allow(dead_code)]
+pub fn log_with_details(
+    provider: &str,
+    level: &str,
+    message: &str,
+    details: serde_json::Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    log_provider_event(provider, level, message, Some(details))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_log_rotation() {
+        let temp_dir = tempdir().unwrap();
+        let log_file = temp_dir.path().join("test.log");
+
+        // Create a file larger than rotation threshold
+        {
+            let mut file = File::create(&log_file).unwrap();
+            let large_content = "x".repeat(11 * 1024 * 1024); // 11MB
+            file.write_all(large_content.as_bytes()).unwrap();
+        }
+
+        assert!(should_rotate_log(&log_file).unwrap());
+
+        rotate_log_file(&log_file).unwrap();
+
+        let backup_file = log_file.with_extension("log.1");
+        assert!(backup_file.exists());
+        assert!(!log_file.exists());
+    }
+
+    #[test]
+    fn test_log_entry_serialization() {
+        let entry = LogEntry {
+            timestamp: "2024-01-01T00:00:00Z".to_string(),
+            level: "INFO".to_string(),
+            provider: "claude-code".to_string(),
+            message: "Test message".to_string(),
+            details: Some(serde_json::json!({"key": "value"})),
+        };
+
+        let json = serde_json::to_string(&entry).unwrap();
+        let parsed: LogEntry = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(entry.timestamp, parsed.timestamp);
+        assert_eq!(entry.level, parsed.level);
+        assert_eq!(entry.provider, parsed.provider);
+        assert_eq!(entry.message, parsed.message);
+    }
+}

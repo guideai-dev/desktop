@@ -1,0 +1,77 @@
+use super::sort_projects_by_modified;
+use crate::config::ProjectInfo;
+use chrono::{DateTime, Utc};
+use serde::Deserialize;
+use shellexpand::tilde;
+use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
+use std::time::SystemTime;
+use toml::Value;
+
+#[derive(Debug, Deserialize, Default)]
+struct CodexConfig {
+    #[serde(default)]
+    projects: HashMap<String, Value>,
+}
+
+pub fn scan_projects(home_directory: &str) -> Result<Vec<ProjectInfo>, String> {
+    let expanded = tilde(home_directory);
+    let base_path = Path::new(expanded.as_ref());
+
+    if !base_path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let config_path = base_path.join("config.toml");
+    if !config_path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let config_contents = fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read Codex config: {}", e))?;
+
+    let config: CodexConfig = toml::from_str(&config_contents)
+        .map_err(|e| format!("Failed to parse Codex config: {}", e))?;
+
+    if config.projects.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut projects = Vec::new();
+
+    for (worktree, _details) in config.projects {
+        let worktree = worktree.trim();
+        if worktree.is_empty() {
+            continue;
+        }
+
+        let path = Path::new(worktree);
+        if !path.exists() {
+            continue;
+        }
+
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+
+        let metadata_time = fs::metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .map(|time| DateTime::<Utc>::from(time))
+            .ok();
+
+        let modified =
+            metadata_time.unwrap_or_else(|| DateTime::<Utc>::from(SystemTime::UNIX_EPOCH));
+
+        projects.push((
+            modified,
+            ProjectInfo {
+                name: name.to_string(),
+                path: path.to_string_lossy().to_string(),
+                last_modified: modified.to_rfc3339(),
+            },
+        ));
+    }
+
+    Ok(sort_projects_by_modified(projects))
+}
