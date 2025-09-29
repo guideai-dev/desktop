@@ -9,6 +9,7 @@ export interface SessionInfo {
   file_path: string
   file_name: string
   file_size: number
+  session_start_time?: string
 }
 
 export interface SessionSyncProgress {
