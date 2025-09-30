@@ -8,7 +8,7 @@
   },
   "package": {
     "productName": "GuideAI Desktop",
-    "version": "0.1.3"
+    "version": "0.1.4"
   },
   "tauri": {
     "allowlist": {
@@ -60,6 +60,24 @@
     "macOSPrivateApi": true,
     "windows": [
       {
+        "label": "status",
+        "fullscreen": false,
+        "height": 450,
+        "resizable": false,
+        "title": "GuideAI Status",
+        "width": 300,
+        "visible": false,
+        "center": false,
+        "x": null,
+        "y": null,
+        "decorations": false,
+        "focus": true,
+        "transparent": false,
+        "skipTaskbar": true,
+        "alwaysOnTop": true
+      },
+      {
+        "label": "main",
         "fullscreen": false,
         "height": 600,
         "resizable": true,
@@ -72,7 +90,7 @@
         "decorations": true,
         "focus": true,
         "transparent": false,
-        "skipTaskbar": true,
+        "skipTaskbar": false,
         "alwaysOnTop": false
       }
     ],

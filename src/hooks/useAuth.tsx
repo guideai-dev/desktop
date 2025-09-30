@@ -60,8 +60,10 @@ export function useAuth() {
     mutationFn: async (serverUrl: string) => {
       return await invoke('login_command', { serverUrl })
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['auth'] })
+    onSuccess: async () => {
+      // Invalidate and immediately refetch to ensure fresh state
+      await queryClient.invalidateQueries({ queryKey: ['auth'] })
+      await queryClient.refetchQueries({ queryKey: ['auth', 'config'] })
     },
   })
 
@@ -69,8 +71,10 @@ export function useAuth() {
     mutationFn: async () => {
       return await invoke('logout_command')
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['auth'] })
+    onSuccess: async () => {
+      // Invalidate and immediately refetch to ensure fresh state
+      await queryClient.invalidateQueries({ queryKey: ['auth'] })
+      await queryClient.refetchQueries({ queryKey: ['auth', 'config'] })
     },
   })
 

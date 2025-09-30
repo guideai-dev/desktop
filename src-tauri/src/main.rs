@@ -18,12 +18,19 @@ use tauri::{
 use tauri_plugin_positioner::{Position, WindowExt};
 
 fn main() {
+    let open_window = CustomMenuItem::new("open_window".to_string(), "Open Full Window");
     let quit = CustomMenuItem::new("quit".to_string(), "Quit").accelerator("Cmd+Q");
-    let system_tray_menu = SystemTrayMenu::new().add_item(quit);
+    let system_tray_menu = SystemTrayMenu::new()
+        .add_item(open_window)
+        .add_item(quit);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_positioner::init())
         .setup(|app| {
+            // Set activation policy to Accessory so app doesn't appear in dock or cmd-tab
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             // Initialize logging system
             if let Err(e) = logging::init_logging() {
                 eprintln!("Failed to initialize logging: {}", e);
@@ -37,13 +44,16 @@ fn main() {
 
             app.manage(app_state);
 
-            // Initialize file watcher for config changes
-            let window = app.get_window("main").unwrap();
+            // Get references to both windows
+            let status_window = app.get_window("status").unwrap();
+            let main_window = app.get_window("main").unwrap();
 
-            // Hide window on startup for menubar-only behavior
-            window.hide().unwrap();
+            // Both windows hidden on startup
+            status_window.hide().unwrap();
+            main_window.hide().unwrap();
 
-            if let Ok(Some(monitor)) = window.current_monitor() {
+            // Configure main window size (90% of monitor)
+            if let Ok(Some(monitor)) = main_window.current_monitor() {
                 let scale_factor = monitor.scale_factor();
                 let size = monitor.size().to_logical::<f64>(scale_factor);
                 let position = monitor.position().to_logical::<f64>(scale_factor);
@@ -54,16 +64,17 @@ fn main() {
                 let centered_x = position.x + (size.width - logical_width) / 2.0;
                 let centered_y = position.y + (size.height - logical_height) / 2.0;
 
-                let _ = window.set_size(Size::Logical(LogicalSize::new(
+                let _ = main_window.set_size(Size::Logical(LogicalSize::new(
                     logical_width,
                     logical_height,
                 )));
-                let _ = window.set_position(tauri::Position::Logical(LogicalPosition::new(
+                let _ = main_window.set_position(tauri::Position::Logical(LogicalPosition::new(
                     centered_x, centered_y,
                 )));
             }
 
-            match start_config_file_watcher(window.clone()) {
+            // Start config file watcher with main window for event emission
+            match start_config_file_watcher(main_window.clone()) {
                 Ok(_watcher) => {
                     // Store the watcher in app state so it doesn't get dropped
                     app.manage(_watcher);
@@ -85,17 +96,22 @@ fn main() {
                     size: _,
                     ..
                 } => {
-                    let window = app.get_window("main").unwrap();
-                    let _ = window.move_window(Position::TrayCenter);
+                    let status_window = app.get_window("status").unwrap();
+                    let _ = status_window.move_window(Position::TrayCenter);
 
-                    if window.is_visible().unwrap() {
-                        window.hide().unwrap();
+                    if status_window.is_visible().unwrap() {
+                        status_window.hide().unwrap();
                     } else {
-                        window.show().unwrap();
-                        window.set_focus().unwrap();
+                        status_window.show().unwrap();
+                        status_window.set_focus().unwrap();
                     }
                 }
                 SystemTrayEvent::MenuItemClick { id, .. } => match id.as_str() {
+                    "open_window" => {
+                        let main_window = app.get_window("main").unwrap();
+                        main_window.show().unwrap();
+                        main_window.set_focus().unwrap();
+                    }
                     "quit" => {
                         std::process::exit(0);
                     }
@@ -104,24 +120,35 @@ fn main() {
                 _ => {}
             }
         })
-        .on_window_event(|event| match event.event() {
-            tauri::WindowEvent::Focused(is_focused) => {
-                // Hide immediately when focus is lost since this is a menubar-only app
-                if !is_focused {
-                    event.window().hide().unwrap();
+        .on_window_event(|event| {
+            let window_label = event.window().label();
+
+            match event.event() {
+                tauri::WindowEvent::Focused(is_focused) => {
+                    // Only hide status window on focus loss (menubar popup behavior)
+                    if !is_focused && window_label == "status" {
+                        event.window().hide().unwrap();
+                    }
                 }
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    if window_label == "status" {
+                        // Status window: prevent close and hide instead
+                        api.prevent_close();
+                        event.window().hide().unwrap();
+                    } else if window_label == "main" {
+                        // Main window: prevent close and hide instead
+                        api.prevent_close();
+                        event.window().hide().unwrap();
+                    }
+                }
+                _ => {}
             }
-            tauri::WindowEvent::CloseRequested { api, .. } => {
-                // keep app running when close button is pressed; hide instead
-                api.prevent_close();
-                event.window().hide().unwrap();
-            }
-            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             commands::load_config_command,
             commands::save_config_command,
             commands::clear_config_command,
+            commands::open_main_window,
             commands::login_command,
             commands::logout_command,
             commands::load_provider_config_command,

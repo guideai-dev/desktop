@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::State;
+use tauri::{Manager, State};
 
 #[tauri::command]
 pub async fn load_config_command() -> Result<GuideAIConfig, String> {
@@ -27,6 +27,15 @@ pub async fn save_config_command(config: GuideAIConfig) -> Result<(), String> {
 #[tauri::command]
 pub async fn clear_config_command() -> Result<(), String> {
     clear_config().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn open_main_window(window: tauri::Window) -> Result<(), String> {
+    if let Some(main_window) = window.app_handle().get_window("main") {
+        main_window.show().map_err(|e| e.to_string())?;
+        main_window.set_focus().map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
