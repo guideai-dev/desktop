@@ -21,6 +21,13 @@ const ACTIVE_SESSION_TIMEOUT: Duration = Duration::from_secs(5); // Mark session
 #[cfg(not(debug_assertions))]
 const ACTIVE_SESSION_TIMEOUT: Duration = Duration::from_secs(60); // Mark session inactive after 60s (production)
 
+// Minimum time between re-uploads to prevent spam
+#[cfg(debug_assertions)]
+const RE_UPLOAD_COOLDOWN: Duration = Duration::from_secs(30); // 30 seconds in dev mode
+
+#[cfg(not(debug_assertions))]
+const RE_UPLOAD_COOLDOWN: Duration = Duration::from_secs(300); // 5 minutes in production
+
 const MIN_SIZE_CHANGE_BYTES: u64 = 1024; // Minimum 1KB change to trigger upload
 
 #[derive(Debug, Clone)]
@@ -39,6 +46,8 @@ pub struct SessionState {
     pub last_size: u64,
     pub is_active: bool,
     pub upload_pending: bool,
+    pub last_uploaded_time: Option<Instant>,
+    pub last_uploaded_size: u64,
 }
 
 #[derive(Debug)]
@@ -195,7 +204,7 @@ impl ClaudeWatcher {
             // Process file system events with timeout
             match rx.recv_timeout(Duration::from_secs(5)) {
                 Ok(Ok(event)) => {
-                    if let Some(file_event) = Self::process_file_event(&event, &projects_path) {
+                    if let Some(file_event) = Self::process_file_event(&event, &projects_path, &session_states) {
                         // Check if this is a new session or significant change (before updating state)
                         let should_log = Self::should_log_event(&file_event, &session_states);
 
@@ -263,9 +272,11 @@ impl ClaudeWatcher {
             // Process ready files
             for path in ready_files {
                 if let Some(file_event) = pending_files.remove(&path) {
-                    // Mark session as uploaded
+                    // Mark session as uploaded and track upload metadata
                     if let Some(session_state) = session_states.get_mut(&file_event.session_id) {
                         session_state.upload_pending = true;
+                        session_state.last_uploaded_time = Some(now);
+                        session_state.last_uploaded_size = file_event.file_size;
                     }
 
                     if let Err(e) = upload_queue.add_item(
@@ -299,7 +310,11 @@ impl ClaudeWatcher {
         }
     }
 
-    fn process_file_event(event: &Event, projects_path: &Path) -> Option<FileChangeEvent> {
+    fn process_file_event(
+        event: &Event,
+        projects_path: &Path,
+        session_states: &HashMap<String, SessionState>,
+    ) -> Option<FileChangeEvent> {
         // Only process write events for .jsonl files
         match &event.kind {
             EventKind::Create(_) | EventKind::Modify(_) => {
@@ -332,7 +347,7 @@ impl ClaudeWatcher {
                             last_modified: Instant::now(),
                             file_size,
                             session_id: session_id.clone(),
-                            is_new_session: Self::is_new_session(&session_id, path),
+                            is_new_session: Self::is_new_session(&session_id, path, session_states),
                         });
                     }
                 }
@@ -370,7 +385,12 @@ impl ClaudeWatcher {
         }
     }
 
-    fn is_new_session(_session_id: &str, path: &Path) -> bool {
+    fn is_new_session(session_id: &str, path: &Path, session_states: &HashMap<String, SessionState>) -> bool {
+        // First check if we've already seen this session
+        if session_states.contains_key(session_id) {
+            return false; // Already tracking this session
+        }
+
         // Check if this session file is new by looking at file size
         // A new session typically starts with a small file size
         if let Ok(metadata) = std::fs::metadata(path) {
@@ -406,7 +426,24 @@ impl ClaudeWatcher {
                 existing_state.last_modified = file_event.last_modified;
                 existing_state.last_size = file_event.file_size;
                 existing_state.is_active = true;
-                // Don't reset upload_pending if it's already set
+
+                // Smart re-upload logic: clear upload_pending if conditions met
+                if existing_state.upload_pending {
+                    let should_allow_reupload = if let Some(last_uploaded_time) = existing_state.last_uploaded_time {
+                        // Check if cooldown has elapsed OR size changed significantly
+                        let cooldown_elapsed = file_event.last_modified.duration_since(last_uploaded_time) >= RE_UPLOAD_COOLDOWN;
+                        let size_changed_significantly = file_event.file_size.saturating_sub(existing_state.last_uploaded_size) >= MIN_SIZE_CHANGE_BYTES;
+
+                        cooldown_elapsed || size_changed_significantly
+                    } else {
+                        // No last upload time recorded, allow re-upload
+                        true
+                    };
+
+                    if should_allow_reupload {
+                        existing_state.upload_pending = false;
+                    }
+                }
             },
             None => {
                 // Create new session state
@@ -415,6 +452,8 @@ impl ClaudeWatcher {
                     last_size: file_event.file_size,
                     is_active: true,
                     upload_pending: false,
+                    last_uploaded_time: None,
+                    last_uploaded_size: 0,
                 };
                 session_states.insert(file_event.session_id.clone(), session_state);
             }
@@ -542,7 +581,8 @@ mod tests {
             paths: vec![hidden_file.clone()],
             attrs: Default::default(),
         };
-        let result = ClaudeWatcher::process_file_event(&hidden_event, projects_path);
+        let session_states = HashMap::new();
+        let result = ClaudeWatcher::process_file_event(&hidden_event, projects_path, &session_states);
         assert!(result.is_none(), "Hidden file should be ignored");
 
         // Test normal file is processed
@@ -551,7 +591,7 @@ mod tests {
             paths: vec![normal_file.clone()],
             attrs: Default::default(),
         };
-        let result = ClaudeWatcher::process_file_event(&normal_event, projects_path);
+        let result = ClaudeWatcher::process_file_event(&normal_event, projects_path, &session_states);
         assert!(result.is_some(), "Normal file should be processed");
         assert_eq!(result.unwrap().session_id, "session-123");
     }

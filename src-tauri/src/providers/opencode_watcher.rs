@@ -22,6 +22,15 @@ const ACTIVE_SESSION_TIMEOUT: Duration = Duration::from_secs(5); // Mark session
 #[cfg(not(debug_assertions))]
 const ACTIVE_SESSION_TIMEOUT: Duration = Duration::from_secs(60); // Mark session inactive after 60s (production)
 
+// Minimum time between re-uploads to prevent spam
+#[cfg(debug_assertions)]
+const RE_UPLOAD_COOLDOWN: Duration = Duration::from_secs(30); // 30 seconds in dev mode
+
+#[cfg(not(debug_assertions))]
+const RE_UPLOAD_COOLDOWN: Duration = Duration::from_secs(300); // 5 minutes in production
+
+const MIN_FILE_COUNT_CHANGE: usize = 2; // Minimum file changes to trigger re-upload
+
 #[derive(Debug, Clone)]
 pub struct SessionChangeEvent {
     pub session_id: String,
@@ -37,6 +46,8 @@ pub struct SessionState {
     pub is_active: bool,
     pub upload_pending: bool,
     pub affected_files: HashSet<PathBuf>,
+    pub last_uploaded_time: Option<Instant>,
+    pub last_uploaded_size: usize, // Total size of all affected files
 }
 
 #[derive(Debug)]
@@ -189,7 +200,7 @@ impl OpenCodeWatcher {
             // Process file system events with timeout
             match rx.recv_timeout(Duration::from_secs(5)) {
                 Ok(Ok(event)) => {
-                    if let Some(session_event) = Self::process_file_event(&event, &storage_path, &parser, &projects_to_watch) {
+                    if let Some(session_event) = Self::process_file_event(&event, &storage_path, &parser, &projects_to_watch, &session_states) {
                         // Check if this is a new session or significant change
                         let should_log = Self::should_log_event(&session_event, &session_states);
 
@@ -263,9 +274,11 @@ impl OpenCodeWatcher {
             // Process ready sessions
             for session_id in ready_sessions {
                 if let Some(session_event) = pending_sessions.remove(&session_id) {
-                    // Mark session as uploaded
+                    // Mark session as uploaded and track upload metadata
                     if let Some(session_state) = session_states.get_mut(&session_event.session_id) {
                         session_state.upload_pending = true;
+                        session_state.last_uploaded_time = Some(now);
+                        session_state.last_uploaded_size = session_state.affected_files.len();
                     }
 
                     // Parse the session and create upload
@@ -318,6 +331,7 @@ impl OpenCodeWatcher {
         storage_path: &Path,
         parser: &OpenCodeParser,
         projects_to_watch: &[String],
+        session_states: &HashMap<String, SessionState>,
     ) -> Option<SessionChangeEvent> {
         // Only process create/modify events
         match &event.kind {
@@ -360,10 +374,10 @@ impl OpenCodeWatcher {
 
                                                     if projects_to_watch.contains(&project_name.to_string()) {
                                                         return Some(SessionChangeEvent {
-                                                            session_id,
+                                                            session_id: session_id.clone(),
                                                             project_id,
                                                             last_modified: Instant::now(),
-                                                            is_new_session: Self::is_new_session(path),
+                                                            is_new_session: Self::is_new_session(&session_id, path, session_states),
                                                             affected_files: vec![path.clone()],
                                                         });
                                                     }
@@ -383,7 +397,7 @@ impl OpenCodeWatcher {
                                                 session_id: session_id.to_string(),
                                                 project_id,
                                                 last_modified: Instant::now(),
-                                                is_new_session: Self::is_new_session(path),
+                                                is_new_session: Self::is_new_session(session_id, path, session_states),
                                                 affected_files: vec![path.clone()],
                                             });
                                         }
@@ -401,7 +415,7 @@ impl OpenCodeWatcher {
                                                 session_id: session_id.to_string(),
                                                 project_id: project_id.to_string(),
                                                 last_modified: Instant::now(),
-                                                is_new_session: Self::is_new_session(path),
+                                                is_new_session: Self::is_new_session(session_id, path, session_states),
                                                 affected_files: vec![path.clone()],
                                             });
                                         }
@@ -421,7 +435,12 @@ impl OpenCodeWatcher {
         None
     }
 
-    fn is_new_session(path: &Path) -> bool {
+    fn is_new_session(session_id: &str, path: &Path, session_states: &HashMap<String, SessionState>) -> bool {
+        // First check if we've already seen this session
+        if session_states.contains_key(session_id) {
+            return false; // Already tracking this session
+        }
+
         // Check if this file is new by looking at file size
         // A new session typically starts with a small file size
         if let Ok(metadata) = std::fs::metadata(path) {
@@ -449,13 +468,35 @@ impl OpenCodeWatcher {
     fn update_session_state(session_states: &mut HashMap<String, SessionState>, session_event: &SessionChangeEvent) {
         match session_states.get_mut(&session_event.session_id) {
             Some(existing_state) => {
+                // Track old file count for change detection
+                let old_file_count = existing_state.affected_files.len();
+
                 // Update existing session state
                 existing_state.last_modified = session_event.last_modified;
                 existing_state.is_active = true;
                 for file in &session_event.affected_files {
                     existing_state.affected_files.insert(file.clone());
                 }
-                // Don't reset upload_pending if it's already set
+
+                // Smart re-upload logic: clear upload_pending if conditions met
+                if existing_state.upload_pending {
+                    let new_file_count = existing_state.affected_files.len();
+                    let file_count_changed = new_file_count.saturating_sub(old_file_count) >= MIN_FILE_COUNT_CHANGE;
+
+                    let should_allow_reupload = if let Some(last_uploaded_time) = existing_state.last_uploaded_time {
+                        // Check if cooldown has elapsed OR file count changed significantly
+                        let cooldown_elapsed = session_event.last_modified.duration_since(last_uploaded_time) >= RE_UPLOAD_COOLDOWN;
+
+                        cooldown_elapsed || file_count_changed
+                    } else {
+                        // No last upload time recorded, allow re-upload
+                        true
+                    };
+
+                    if should_allow_reupload {
+                        existing_state.upload_pending = false;
+                    }
+                }
             },
             None => {
                 // Create new session state
@@ -469,6 +510,8 @@ impl OpenCodeWatcher {
                     is_active: true,
                     upload_pending: false,
                     affected_files,
+                    last_uploaded_time: None,
+                    last_uploaded_size: 0,
                 };
                 session_states.insert(session_event.session_id.clone(), session_state);
             }
@@ -545,17 +588,31 @@ mod tests {
     fn test_is_new_session() {
         let temp_dir = tempdir().unwrap();
         let file_path = temp_dir.path().join("test.json");
+        let session_id = "test-session";
 
-        // Create a small file
+        // Test with empty session states
+        let mut session_states = HashMap::new();
+
+        // Create a small file - should be considered new
         fs::write(&file_path, "{}").unwrap();
+        assert!(OpenCodeWatcher::is_new_session(session_id, &file_path, &session_states));
 
-        assert!(OpenCodeWatcher::is_new_session(&file_path));
-
-        // Create a larger file
+        // Create a larger file - should not be considered new based on size
         let large_content = "x".repeat(2000);
         fs::write(&file_path, large_content).unwrap();
+        assert!(!OpenCodeWatcher::is_new_session(session_id, &file_path, &session_states));
 
-        assert!(!OpenCodeWatcher::is_new_session(&file_path));
+        // Add session to states - should not be considered new even if file is small
+        session_states.insert(session_id.to_string(), SessionState {
+            last_modified: Instant::now(),
+            is_active: true,
+            upload_pending: false,
+            affected_files: HashSet::new(),
+            last_uploaded_time: None,
+            last_uploaded_size: 0,
+        });
+        fs::write(&file_path, "{}").unwrap();
+        assert!(!OpenCodeWatcher::is_new_session(session_id, &file_path, &session_states));
     }
 
     #[test]
@@ -580,6 +637,7 @@ mod tests {
         // Create a minimal parser (won't actually parse, just checking file filtering)
         let parser = OpenCodeParser::new(storage_path.to_path_buf());
         let projects_to_watch = vec!["project1".to_string()];
+        let session_states = HashMap::new();
 
         // Test hidden file is ignored
         let hidden_event = Event {
@@ -587,7 +645,7 @@ mod tests {
             paths: vec![hidden_file.clone()],
             attrs: Default::default(),
         };
-        let result = OpenCodeWatcher::process_file_event(&hidden_event, storage_path, &parser, &projects_to_watch);
+        let result = OpenCodeWatcher::process_file_event(&hidden_event, storage_path, &parser, &projects_to_watch, &session_states);
         assert!(result.is_none(), "Hidden file should be ignored");
 
         // Test normal file would be processed (will fail to find project, but the file isn't filtered out)
@@ -596,7 +654,7 @@ mod tests {
             paths: vec![normal_file.clone()],
             attrs: Default::default(),
         };
-        let _result = OpenCodeWatcher::process_file_event(&normal_event, storage_path, &parser, &projects_to_watch);
+        let _result = OpenCodeWatcher::process_file_event(&normal_event, storage_path, &parser, &projects_to_watch, &session_states);
         // Result might be None if project lookup fails, but that's OK - we're just testing file filtering
         // The important thing is it didn't get filtered out like the hidden file
     }
