@@ -56,7 +56,10 @@ struct UserInfo {
 }
 
 #[tauri::command]
-pub async fn login_command(server_url: String) -> Result<(), String> {
+pub async fn login_command(
+    server_url: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     // Start the auth server - this handles automatic port selection and cleanup
     let (auth_server, result_rx) = AuthServer::start()
         .await
@@ -119,6 +122,10 @@ pub async fn login_command(server_url: String) -> Result<(), String> {
         save_config(&config).map_err(|e| format!("Failed to save configuration: {}", e))?;
         println!("Config saved successfully");
 
+        // Update upload queue with new config
+        state.upload_queue.set_config(config);
+        println!("Upload queue config updated");
+
         Ok::<(), String>(())
     }
     .await;
@@ -169,8 +176,23 @@ async fn verify_session(
 }
 
 #[tauri::command]
-pub async fn logout_command() -> Result<(), String> {
-    clear_config_command().await
+pub async fn logout_command(state: State<'_, AppState>) -> Result<(), String> {
+    clear_config_command().await?;
+
+    // Clear upload queue config by setting an empty config
+    let empty_config = GuideAIConfig {
+        api_key: None,
+        server_url: None,
+        username: None,
+        name: None,
+        avatar_url: None,
+        tenant_id: None,
+        tenant_name: None,
+    };
+    state.upload_queue.set_config(empty_config);
+    println!("Upload queue config cleared");
+
+    Ok(())
 }
 
 // Provider config commands
