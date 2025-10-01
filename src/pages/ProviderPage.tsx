@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useParams, Navigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useParams, Navigate, useSearchParams } from 'react-router-dom'
 import { CODING_AGENTS } from '../types/providers'
 import AgentConfig from '../components/Configuration/AgentConfig'
 import LogViewer from '../components/LogViewer'
@@ -7,7 +7,15 @@ import { DocumentTextIcon, ChevronLeftIcon } from '@heroicons/react/24/outline'
 
 function ProviderPage() {
   const { providerId } = useParams<{ providerId: string }>()
+  const [searchParams] = useSearchParams()
   const [showLogs, setShowLogs] = useState(false)
+
+  // Check if we should show logs based on query parameter
+  useEffect(() => {
+    if (searchParams.get('showLogs') === 'true') {
+      setShowLogs(true)
+    }
+  }, [searchParams])
 
   const agent = CODING_AGENTS.find(a => a.id === providerId)
 

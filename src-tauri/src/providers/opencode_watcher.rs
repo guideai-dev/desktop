@@ -1,11 +1,14 @@
 use super::opencode_parser::OpenCodeParser;
 use crate::config::load_provider_config;
 use crate::logging::{log_debug, log_error, log_info, log_warn};
+use crate::project_metadata::extract_project_metadata;
 use crate::upload_queue::UploadQueue;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use shellexpand::tilde;
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
@@ -187,6 +190,9 @@ impl OpenCodeWatcher {
         let mut pending_sessions: HashMap<String, SessionChangeEvent> = HashMap::new();
         let mut session_states: HashMap<String, SessionState> = HashMap::new();
 
+        // Create a tokio runtime for async operations
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
         loop {
             // Check if we should continue running
             {
@@ -281,6 +287,13 @@ impl OpenCodeWatcher {
                         session_state.last_uploaded_size = session_state.affected_files.len();
                     }
 
+                    // Extract worktree and process project metadata if this is a new session
+                    let worktree_for_metadata = if session_event.is_new_session {
+                        Self::extract_worktree_from_project(&storage_path, &session_event.project_id)
+                    } else {
+                        None
+                    };
+
                     // Parse the session and create upload
                     match parser.parse_session(&session_event.session_id) {
                         Ok(parsed_session) => {
@@ -302,6 +315,28 @@ impl OpenCodeWatcher {
                                     &format!("📤 OpenCode session {} queued for upload (project: {})", session_event.session_id, session_event.project_id),
                                 ) {
                                     eprintln!("Logging error: {}", e);
+                                }
+
+                                // Process project metadata if this is a new session
+                                if let Some(worktree) = worktree_for_metadata {
+                                    if let Err(e) = log_info(
+                                        PROVIDER_ID,
+                                        &format!("📁 Extracting project metadata from: {}", worktree),
+                                    ) {
+                                        eprintln!("Logging error: {}", e);
+                                    }
+
+                                    let upload_queue_clone = Arc::clone(&upload_queue);
+                                    rt.block_on(async move {
+                                        if let Some(project_name) = Self::process_project_metadata(&worktree, upload_queue_clone).await {
+                                            if let Err(e) = log_info(
+                                                PROVIDER_ID,
+                                                &format!("✓ Project metadata processed: {}", project_name),
+                                            ) {
+                                                eprintln!("Logging error: {}", e);
+                                            }
+                                        }
+                                    });
                                 }
                             }
                         }
@@ -534,6 +569,71 @@ impl OpenCodeWatcher {
         session_states.retain(|_, state| {
             now.duration_since(state.last_modified) < cleanup_threshold || !state.upload_pending
         });
+    }
+
+    /// Extract worktree (CWD) from OpenCode project file
+    fn extract_worktree_from_project(storage_path: &Path, project_id: &str) -> Option<String> {
+        let project_file = storage_path.join("project").join(format!("{}.json", project_id));
+
+        if !project_file.exists() {
+            return None;
+        }
+
+        let content = fs::read_to_string(&project_file).ok()?;
+        let json: Value = serde_json::from_str(&content).ok()?;
+
+        json.get("worktree")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    }
+
+    /// Process project metadata and upload if needed
+    async fn process_project_metadata(
+        cwd: &str,
+        upload_queue: Arc<UploadQueue>,
+    ) -> Option<String> {
+        // Extract project metadata from CWD
+        let metadata = match extract_project_metadata(cwd) {
+            Ok(m) => m,
+            Err(e) => {
+                if let Err(log_err) = log_warn(
+                    PROVIDER_ID,
+                    &format!("⚠ Failed to extract project metadata from {}: {}", cwd, e),
+                ) {
+                    eprintln!("Logging error: {}", log_err);
+                }
+                return None;
+            }
+        };
+
+        let project_name = metadata.project_name.clone();
+
+        // Always upload project metadata (server will handle upsert)
+        if let Err(e) = log_info(
+            PROVIDER_ID,
+            &format!("📦 Uploading project metadata: {}", project_name),
+        ) {
+            eprintln!("Logging error: {}", e);
+        }
+
+        if let Err(e) = upload_queue.upload_project_metadata(&metadata).await {
+            if let Err(log_err) = log_error(
+                PROVIDER_ID,
+                &format!("✗ Failed to upload project metadata for {}: {}", project_name, e),
+            ) {
+                eprintln!("Logging error: {}", log_err);
+            }
+            return None;
+        }
+
+        if let Err(e) = log_info(
+            PROVIDER_ID,
+            &format!("✓ Project metadata processed: {}", project_name),
+        ) {
+            eprintln!("Logging error: {}", e);
+        }
+
+        Some(project_name)
     }
 
     pub fn stop(&self) {

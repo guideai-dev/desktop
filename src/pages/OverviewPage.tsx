@@ -2,6 +2,9 @@ import { CODING_AGENTS } from '../types/providers'
 import { useProviderConfig } from '../hooks/useProviderConfig'
 import { useNavigate } from 'react-router-dom'
 import ProviderIcon from '../components/icons/ProviderIcon'
+import { DocumentTextIcon } from '@heroicons/react/24/outline'
+import { useState } from 'react'
+import LogViewer from '../components/LogViewer'
 
 function OverviewPage() {
   const navigate = useNavigate()
@@ -31,6 +34,35 @@ interface ProviderCardProps {
 
 function ProviderCard({ agent, onConfigure }: ProviderCardProps) {
   const { data: config, isLoading } = useProviderConfig(agent.id)
+  const [showLogs, setShowLogs] = useState(false)
+
+  if (showLogs) {
+    return (
+      <div className="card bg-base-100 shadow-sm border border-base-300">
+        <div className="card-body p-0">
+          <div className="flex items-center justify-between p-3 border-b border-base-300">
+            <div className="flex items-center gap-3">
+              <div className="avatar placeholder">
+                <div className="bg-base-200 rounded-lg w-8 h-8 flex items-center justify-center p-1.5">
+                  <ProviderIcon providerId={agent.id} size={20} />
+                </div>
+              </div>
+              <h3 className="text-base font-semibold">{agent.name} Logs</h3>
+            </div>
+            <button
+              onClick={() => setShowLogs(false)}
+              className="btn btn-sm btn-ghost"
+            >
+              Back
+            </button>
+          </div>
+          <div className="h-96 overflow-hidden">
+            <LogViewer provider={agent.id} fullHeight />
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="card bg-base-100 shadow-sm border border-base-300">
@@ -61,6 +93,13 @@ function ProviderCard({ agent, onConfigure }: ProviderCardProps) {
                 </span>
               </div>
             )}
+            <button
+              className="btn btn-sm btn-ghost gap-2"
+              onClick={() => setShowLogs(true)}
+            >
+              <DocumentTextIcon className="w-4 h-4" />
+              Logs
+            </button>
             <button
               className="btn btn-sm btn-primary"
               onClick={onConfigure}

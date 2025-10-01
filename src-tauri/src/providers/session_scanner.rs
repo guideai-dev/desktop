@@ -17,6 +17,7 @@ pub struct SessionInfo {
     pub duration_ms: Option<i64>,
     pub file_size: u64,
     pub content: Option<String>, // For OpenCode sessions with in-memory content
+    pub cwd: Option<String>, // Working directory for the session
 }
 
 
@@ -110,6 +111,18 @@ fn scan_claude_sessions(base_path: &Path) -> Result<Vec<SessionInfo>, String> {
     Ok(sessions)
 }
 
+fn extract_cwd_from_claude_session(content: &str) -> Option<String> {
+    // Look through the first 50 lines for a cwd field
+    for line in content.lines().take(50) {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(line) {
+            if let Some(cwd) = value.get("cwd").and_then(|v| v.as_str()) {
+                return Some(cwd.to_string());
+            }
+        }
+    }
+    None
+}
+
 fn parse_claude_session(file_path: &Path, project_name: &str) -> Result<SessionInfo, String> {
     let content = fs::read_to_string(file_path)
         .map_err(|e| format!("Failed to read file: {}", e))?;
@@ -162,9 +175,23 @@ fn parse_claude_session(file_path: &Path, project_name: &str) -> Result<SessionI
         .unwrap_or("unknown.jsonl")
         .to_string();
 
+    // Try to extract CWD from session content (look for cwd in early entries)
+    let cwd = extract_cwd_from_claude_session(&content);
+
+    // Derive actual project name from CWD if available
+    let actual_project_name = if let Some(ref cwd_path) = cwd {
+        use crate::project_metadata::extract_project_metadata;
+        match extract_project_metadata(cwd_path) {
+            Ok(metadata) => metadata.project_name,
+            Err(_) => project_name.to_string(), // Fall back to directory name
+        }
+    } else {
+        project_name.to_string() // Fall back to directory name
+    };
+
     Ok(SessionInfo {
         provider: "claude-code".to_string(),
-        project_name: project_name.to_string(),
+        project_name: actual_project_name,
         session_id,
         file_path: file_path.to_path_buf(),
         file_name,
@@ -173,6 +200,7 @@ fn parse_claude_session(file_path: &Path, project_name: &str) -> Result<SessionI
         duration_ms,
         file_size,
         content: None, // Claude Code sessions use files directly
+        cwd,
     })
 }
 
@@ -246,6 +274,7 @@ fn parse_opencode_session(
         duration_ms: parsed_session.duration_ms,
         file_size: parsed_session.jsonl_content.len() as u64,
         content: Some(parsed_session.jsonl_content), // OpenCode sessions have in-memory content
+        cwd: parsed_session.cwd, // OpenCode sessions have CWD
     })
 }
 
@@ -368,6 +397,7 @@ fn parse_codex_session(file_path: &Path) -> Result<SessionInfo, String> {
         duration_ms,
         file_size,
         content: None, // Codex sessions use files directly
+        cwd: Some(cwd), // Codex sessions have CWD from parsing
     })
 }
 

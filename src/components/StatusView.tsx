@@ -3,7 +3,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useUploadQueueStatus } from '../hooks/useUploadQueue'
 import { useProviderConfig, useSaveProviderConfig } from '../hooks/useProviderConfig'
 import { CODING_AGENTS } from '../types/providers'
-import { ArrowTopRightOnSquareIcon } from '@heroicons/react/24/outline'
+import { ArrowTopRightOnSquareIcon, DocumentTextIcon } from '@heroicons/react/24/outline'
 import ProviderIcon from './icons/ProviderIcon'
 
 function StatusView() {
@@ -34,6 +34,14 @@ function StatusView() {
   }
 
   const totalQueueItems = (queueStatus?.pending || 0) + (queueStatus?.processing || 0) + (queueStatus?.failed || 0)
+
+  const openMainWindowToProviderLogs = async (providerId: string) => {
+    try {
+      await invoke('open_main_window', { route: `/provider/${providerId}?showLogs=true` })
+    } catch (err) {
+      console.error('Failed to open main window:', err)
+    }
+  }
 
   return (
     <div className="h-screen flex flex-col bg-base-100" data-theme="guideai">
@@ -96,15 +104,24 @@ function StatusView() {
                   </div>
                   <span className="text-sm">{agent.name}</span>
                 </div>
-                <button
-                  onClick={() => toggleProvider(agent.id, config)}
-                  disabled={saveConfig.isPending}
-                  className={`btn btn-xs ${
-                    isEnabled ? 'btn-error' : 'btn-success'
-                  }`}
-                >
-                  {isEnabled ? 'Disable' : 'Enable'}
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => openMainWindowToProviderLogs(agent.id)}
+                    className="btn btn-xs btn-ghost gap-1"
+                    title="Open logs in full window"
+                  >
+                    <DocumentTextIcon className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={() => toggleProvider(agent.id, config)}
+                    disabled={saveConfig.isPending}
+                    className={`btn btn-xs ${
+                      isEnabled ? 'btn-error' : 'btn-success'
+                    }`}
+                  >
+                    {isEnabled ? 'Disable' : 'Enable'}
+                  </button>
+                </div>
               </div>
             )
           })}

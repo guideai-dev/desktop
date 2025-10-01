@@ -1,5 +1,6 @@
 use crate::config::GuideAIConfig;
 use crate::logging::{log_error, log_info, log_warn};
+use crate::project_metadata::ProjectMetadata;
 use crate::providers::SessionInfo;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -59,6 +60,17 @@ pub struct UploadRequest {
     #[serde(rename = "filePath")]
     pub file_path: String,
     pub content: String, // base64 encoded
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectUploadRequest {
+    #[serde(rename = "projectName")]
+    pub project_name: String,
+    #[serde(rename = "gitRemoteUrl")]
+    pub git_remote_url: Option<String>,
+    pub cwd: String,
+    #[serde(rename = "detectedProjectType")]
+    pub detected_project_type: String,
 }
 
 #[derive(Debug, Clone)]
@@ -197,6 +209,38 @@ impl UploadQueue {
             log_info("upload-queue", &format!("⚡ Skipping duplicate historical upload: {} (already uploaded)", session.file_name))
                 .unwrap_or_default();
             return Ok(());
+        }
+
+        // Extract and upload project metadata if CWD is available
+        if let Some(ref cwd) = session.cwd {
+            use crate::project_metadata::extract_project_metadata;
+            match extract_project_metadata(cwd) {
+                Ok(metadata) => {
+                    // Clone necessary data for the async task
+                    let config_clone = if let Ok(config_guard) = self.config.lock() {
+                        config_guard.clone()
+                    } else {
+                        None
+                    };
+
+                    let metadata_clone = metadata.clone();
+
+                    // Spawn async task to upload project metadata
+                    tokio::spawn(async move {
+                        if let Err(e) = Self::upload_project_metadata_static(&metadata_clone, config_clone).await {
+                            log_warn("upload-queue", &format!("⚠ Failed to upload project metadata: {}", e))
+                                .unwrap_or_default();
+                        } else {
+                            log_info("upload-queue", &format!("✓ Uploaded project metadata for {}", metadata_clone.project_name))
+                                .unwrap_or_default();
+                        }
+                    });
+                }
+                Err(e) => {
+                    log_warn("upload-queue", &format!("⚠ Could not extract project metadata from {}: {}", cwd, e))
+                        .unwrap_or_default();
+                }
+            }
         }
 
         let item = UploadItem {
@@ -670,6 +714,93 @@ impl UploadQueue {
         } else {
             Err("Item not found in failed list".to_string())
         }
+    }
+
+    /// Check if a project exists on the server (GET request)
+    pub async fn check_project_exists(
+        &self,
+        project_name: &str,
+    ) -> Result<bool, String> {
+        let config = if let Ok(config_guard) = self.config.lock() {
+            config_guard.clone()
+        } else {
+            None
+        };
+
+        let config = config.ok_or("No configuration available")?;
+        let api_key = config.api_key.ok_or("No API key configured")?;
+        let server_url = config.server_url.ok_or("No server URL configured")?;
+
+        // Make GET request to check if project exists
+        let client = reqwest::Client::new();
+        let url = format!("{}/api/projects/{}", server_url, project_name);
+
+        let response = client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .send()
+            .await
+            .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+        Ok(response.status().is_success())
+    }
+
+    /// Upload project metadata to the server (static version for use in async tasks)
+    async fn upload_project_metadata_static(
+        metadata: &ProjectMetadata,
+        config: Option<GuideAIConfig>,
+    ) -> Result<(), String> {
+        let config = config.ok_or("No configuration available")?;
+        let api_key = config.api_key.ok_or("No API key configured")?;
+        let server_url = config.server_url.ok_or("No server URL configured")?;
+
+        // Prepare upload request
+        let upload_request = ProjectUploadRequest {
+            project_name: metadata.project_name.clone(),
+            git_remote_url: metadata.git_remote_url.clone(),
+            cwd: metadata.cwd.clone(),
+            detected_project_type: metadata.detected_project_type.clone(),
+        };
+
+        // Make HTTP POST request to server
+        let client = reqwest::Client::new();
+        let url = format!("{}/api/projects", server_url);
+
+        let response = client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .json(&upload_request)
+            .send()
+            .await
+            .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+        if response.status().is_success() {
+            log_info(
+                "upload-queue",
+                &format!("📦 Project metadata uploaded: {}", metadata.project_name),
+            )
+            .unwrap_or_default();
+            Ok(())
+        } else {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            Err(format!("Project upload failed with status {}: {}", status, error_text))
+        }
+    }
+
+    /// Upload project metadata to the server
+    pub async fn upload_project_metadata(
+        &self,
+        metadata: &ProjectMetadata,
+    ) -> Result<(), String> {
+        let config = if let Ok(config_guard) = self.config.lock() {
+            config_guard.clone()
+        } else {
+            None
+        };
+
+        Self::upload_project_metadata_static(metadata, config).await
     }
 }
 

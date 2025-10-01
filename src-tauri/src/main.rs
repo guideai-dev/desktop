@@ -6,6 +6,7 @@ mod commands;
 mod config;
 mod file_watcher;
 mod logging;
+mod project_metadata;
 mod providers;
 mod upload_queue;
 

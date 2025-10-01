@@ -30,8 +30,12 @@ pub async fn clear_config_command() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn open_main_window(window: tauri::Window) -> Result<(), String> {
+pub async fn open_main_window(window: tauri::Window, route: Option<String>) -> Result<(), String> {
     if let Some(main_window) = window.app_handle().get_window("main") {
+        // If route is provided, emit an event to navigate to that route
+        if let Some(route_path) = route {
+            main_window.emit("navigate", route_path).map_err(|e| e.to_string())?;
+        }
         main_window.show().map_err(|e| e.to_string())?;
         main_window.set_focus().map_err(|e| e.to_string())?;
     }

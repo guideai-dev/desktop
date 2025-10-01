@@ -1,10 +1,13 @@
 use crate::config::load_provider_config;
 use crate::logging::{log_debug, log_error, log_info, log_warn};
+use crate::project_metadata::extract_project_metadata;
 use crate::upload_queue::UploadQueue;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use shellexpand::tilde;
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
@@ -145,6 +148,9 @@ impl CodexWatcher {
         let mut pending_files: HashMap<PathBuf, FileChangeEvent> = HashMap::new();
         let mut session_states: HashMap<String, SessionState> = HashMap::new();
 
+        // Create a tokio runtime for async operations
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
         loop {
             // Check if we should continue running
             {
@@ -233,6 +239,13 @@ impl CodexWatcher {
                         session_state.last_uploaded_size = file_event.file_size;
                     }
 
+                    // Extract CWD and process project metadata if this is a new session
+                    let cwd_for_metadata = if file_event.is_new_session {
+                        Self::extract_cwd_from_file(&file_event.path)
+                    } else {
+                        None
+                    };
+
                     if let Err(e) = upload_queue.add_item(
                         PROVIDER_ID,
                         &file_event.project_name,
@@ -250,6 +263,28 @@ impl CodexWatcher {
                             &format!("📤 Codex session {} queued for upload ({})", file_event.session_id, file_event.path.file_name().unwrap_or_default().to_string_lossy()),
                         ) {
                             eprintln!("Logging error: {}", e);
+                        }
+
+                        // Process project metadata if this is a new session
+                        if let Some(cwd) = cwd_for_metadata {
+                            if let Err(e) = log_info(
+                                PROVIDER_ID,
+                                &format!("📁 Extracting project metadata from: {}", cwd),
+                            ) {
+                                eprintln!("Logging error: {}", e);
+                            }
+
+                            let upload_queue_clone = Arc::clone(&upload_queue);
+                            rt.block_on(async move {
+                                if let Some(project_name) = Self::process_project_metadata(&cwd, upload_queue_clone).await {
+                                    if let Err(e) = log_info(
+                                        PROVIDER_ID,
+                                        &format!("✓ Project metadata processed: {}", project_name),
+                                    ) {
+                                        eprintln!("Logging error: {}", e);
+                                    }
+                                }
+                            });
                         }
                     }
                 }
@@ -456,6 +491,79 @@ impl CodexWatcher {
         session_states.retain(|_, state| {
             now.duration_since(state.last_modified) < cleanup_threshold || !state.upload_pending
         });
+    }
+
+    /// Extract CWD from Codex JSONL file
+    fn extract_cwd_from_file(file_path: &Path) -> Option<String> {
+        let content = fs::read_to_string(file_path).ok()?;
+        let lines: Vec<&str> = content.lines().filter(|line| !line.trim().is_empty()).collect();
+
+        // Scan all entries for first one with cwd field
+        for line in lines {
+            if let Ok(entry) = serde_json::from_str::<Value>(line) {
+                // Check for direct cwd field
+                if let Some(cwd) = entry.get("cwd").and_then(|v| v.as_str()) {
+                    return Some(cwd.to_string());
+                }
+                // Check for payload.cwd field (Codex format)
+                if let Some(cwd) = entry.get("payload")
+                    .and_then(|p| p.get("cwd"))
+                    .and_then(|v| v.as_str()) {
+                    return Some(cwd.to_string());
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Process project metadata and upload if needed
+    async fn process_project_metadata(
+        cwd: &str,
+        upload_queue: Arc<UploadQueue>,
+    ) -> Option<String> {
+        // Extract project metadata from CWD
+        let metadata = match extract_project_metadata(cwd) {
+            Ok(m) => m,
+            Err(e) => {
+                if let Err(log_err) = log_warn(
+                    PROVIDER_ID,
+                    &format!("⚠ Failed to extract project metadata from {}: {}", cwd, e),
+                ) {
+                    eprintln!("Logging error: {}", log_err);
+                }
+                return None;
+            }
+        };
+
+        let project_name = metadata.project_name.clone();
+
+        // Always upload project metadata (server will handle upsert)
+        if let Err(e) = log_info(
+            PROVIDER_ID,
+            &format!("📦 Uploading project metadata: {}", project_name),
+        ) {
+            eprintln!("Logging error: {}", e);
+        }
+
+        if let Err(e) = upload_queue.upload_project_metadata(&metadata).await {
+            if let Err(log_err) = log_error(
+                PROVIDER_ID,
+                &format!("✗ Failed to upload project metadata for {}: {}", project_name, e),
+            ) {
+                eprintln!("Logging error: {}", log_err);
+            }
+            return None;
+        }
+
+        if let Err(e) = log_info(
+            PROVIDER_ID,
+            &format!("✓ Project metadata processed: {}", project_name),
+        ) {
+            eprintln!("Logging error: {}", e);
+        }
+
+        Some(project_name)
     }
 
     pub fn stop(&self) {

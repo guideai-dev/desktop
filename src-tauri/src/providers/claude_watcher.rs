@@ -1,10 +1,13 @@
 use crate::config::load_provider_config;
 use crate::logging::{log_debug, log_error, log_info, log_warn};
+use crate::project_metadata::extract_project_metadata;
 use crate::upload_queue::UploadQueue;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use shellexpand::tilde;
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
@@ -191,6 +194,9 @@ impl ClaudeWatcher {
         let mut pending_files: HashMap<PathBuf, FileChangeEvent> = HashMap::new();
         let mut session_states: HashMap<String, SessionState> = HashMap::new();
 
+        // Create a tokio runtime for async operations
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
         loop {
             // Check if we should continue running
             {
@@ -279,9 +285,48 @@ impl ClaudeWatcher {
                         session_state.last_uploaded_size = file_event.file_size;
                     }
 
+                    // Extract CWD and derive the actual project name (for all sessions)
+                    let (cwd_for_metadata, actual_project_name) = if let Some(cwd) = Self::extract_cwd_from_file(&file_event.path) {
+                        if let Err(e) = log_debug(
+                            PROVIDER_ID,
+                            &format!("🔍 Extracted CWD from session {}: {}", file_event.session_id, cwd),
+                        ) {
+                            eprintln!("Logging error: {}", e);
+                        }
+
+                        // Extract project name from CWD using project metadata logic
+                        use crate::project_metadata::extract_project_metadata;
+                        if let Ok(metadata) = extract_project_metadata(&cwd) {
+                            // Only upload metadata for new sessions to avoid duplicates
+                            let should_upload_metadata = file_event.is_new_session;
+                            (if should_upload_metadata { Some(cwd.clone()) } else { None }, Some(metadata.project_name))
+                        } else {
+                            if let Err(e) = log_warn(
+                                PROVIDER_ID,
+                                &format!("⚠ Failed to extract project metadata from CWD for session {}", file_event.session_id),
+                            ) {
+                                eprintln!("Logging error: {}", e);
+                            }
+                            (if file_event.is_new_session { Some(cwd) } else { None }, None)
+                        }
+                    } else {
+                        if file_event.is_new_session {
+                            if let Err(e) = log_warn(
+                                PROVIDER_ID,
+                                &format!("⚠ Failed to extract CWD from new session {}", file_event.session_id),
+                            ) {
+                                eprintln!("Logging error: {}", e);
+                            }
+                        }
+                        (None, None)
+                    };
+
+                    // Use the actual project name if available, otherwise fall back to directory name
+                    let project_name_for_upload = actual_project_name.as_deref().unwrap_or(&file_event.project_name);
+
                     if let Err(e) = upload_queue.add_item(
                         PROVIDER_ID,
-                        &file_event.project_name,
+                        project_name_for_upload,
                         file_event.path.clone(),
                     ) {
                         if let Err(log_err) = log_error(
@@ -296,6 +341,28 @@ impl ClaudeWatcher {
                             &format!("📤 Claude Code session {} queued for upload ({})", file_event.session_id, file_event.path.file_name().unwrap_or_default().to_string_lossy()),
                         ) {
                             eprintln!("Logging error: {}", e);
+                        }
+
+                        // Process project metadata if this is a new session
+                        if let Some(cwd) = cwd_for_metadata {
+                            if let Err(e) = log_info(
+                                PROVIDER_ID,
+                                &format!("📁 Extracting project metadata from: {}", cwd),
+                            ) {
+                                eprintln!("Logging error: {}", e);
+                            }
+
+                            let upload_queue_clone = Arc::clone(&upload_queue);
+                            rt.block_on(async move {
+                                if let Some(project_name) = Self::process_project_metadata(&cwd, upload_queue_clone).await {
+                                    if let Err(e) = log_info(
+                                        PROVIDER_ID,
+                                        &format!("✓ Project metadata processed: {}", project_name),
+                                    ) {
+                                        eprintln!("Logging error: {}", e);
+                                    }
+                                }
+                            });
                         }
                     }
                 }
@@ -385,22 +452,10 @@ impl ClaudeWatcher {
         }
     }
 
-    fn is_new_session(session_id: &str, path: &Path, session_states: &HashMap<String, SessionState>) -> bool {
-        // First check if we've already seen this session
-        if session_states.contains_key(session_id) {
-            return false; // Already tracking this session
-        }
-
-        // Check if this session file is new by looking at file size
-        // A new session typically starts with a small file size
-        if let Ok(metadata) = std::fs::metadata(path) {
-            let file_size = metadata.len();
-            // Consider it a new session if file is small (less than 5KB)
-            // This indicates it's just starting
-            file_size < 5120
-        } else {
-            true // If we can't read metadata, assume it's new
-        }
+    fn is_new_session(session_id: &str, _path: &Path, session_states: &HashMap<String, SessionState>) -> bool {
+        // A session is considered new if we haven't seen it before
+        // We don't check file size because sessions can grow quickly
+        !session_states.contains_key(session_id)
     }
 
     fn should_log_event(file_event: &FileChangeEvent, session_states: &HashMap<String, SessionState>) -> bool {
@@ -476,6 +531,91 @@ impl ClaudeWatcher {
         session_states.retain(|_, state| {
             now.duration_since(state.last_modified) < cleanup_threshold || !state.upload_pending
         });
+    }
+
+    /// Extract CWD from Claude Code JSONL file
+    fn extract_cwd_from_file(file_path: &Path) -> Option<String> {
+        let content = fs::read_to_string(file_path).ok()?;
+        let lines: Vec<&str> = content.lines().filter(|line| !line.trim().is_empty()).collect();
+
+        // Scan all entries for first one with cwd field
+        for line in lines {
+            if let Ok(entry) = serde_json::from_str::<Value>(line) {
+                // Check for direct cwd field
+                if let Some(cwd) = entry.get("cwd").and_then(|v| v.as_str()) {
+                    return Some(cwd.to_string());
+                }
+                // Check for payload.cwd field
+                if let Some(cwd) = entry.get("payload")
+                    .and_then(|p| p.get("cwd"))
+                    .and_then(|v| v.as_str()) {
+                    return Some(cwd.to_string());
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Process project metadata and upload if needed
+    async fn process_project_metadata(
+        cwd: &str,
+        upload_queue: Arc<UploadQueue>,
+    ) -> Option<String> {
+        // Extract project metadata from CWD
+        let metadata = match extract_project_metadata(cwd) {
+            Ok(m) => {
+                if let Err(e) = log_info(
+                    PROVIDER_ID,
+                    &format!("📦 Extracted project metadata: {} (type: {}, git: {})",
+                        m.project_name,
+                        m.detected_project_type,
+                        m.git_remote_url.as_deref().unwrap_or("none")
+                    ),
+                ) {
+                    eprintln!("Logging error: {}", e);
+                }
+                m
+            },
+            Err(e) => {
+                if let Err(log_err) = log_warn(
+                    PROVIDER_ID,
+                    &format!("⚠ Failed to extract project metadata from {}: {}", cwd, e),
+                ) {
+                    eprintln!("Logging error: {}", log_err);
+                }
+                return None;
+            }
+        };
+
+        let project_name = metadata.project_name.clone();
+
+        // Always upload project metadata (server will handle upsert)
+        if let Err(e) = log_info(
+            PROVIDER_ID,
+            &format!("📦 Uploading project metadata: {}", project_name),
+        ) {
+            eprintln!("Logging error: {}", e);
+        }
+
+        if let Err(e) = upload_queue.upload_project_metadata(&metadata).await {
+            if let Err(log_err) = log_error(
+                PROVIDER_ID,
+                &format!("✗ Failed to upload project metadata for {}: {}", project_name, e),
+            ) {
+                eprintln!("Logging error: {}", log_err);
+            }
+            return None;
+        }
+
+        if let Err(e) = log_info(
+            PROVIDER_ID,
+            &format!("✓ Project metadata processed: {}", project_name),
+        ) {
+            eprintln!("Logging error: {}", e);
+        }
+
+        Some(project_name)
     }
 
     pub fn stop(&self) {

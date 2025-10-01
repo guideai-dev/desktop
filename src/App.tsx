@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from './hooks/useAuth'
 import Login from './components/Login'
 import AppLayout from './components/Layout/AppLayout'
@@ -6,6 +6,36 @@ import OverviewPage from './pages/OverviewPage'
 import ProviderPage from './pages/ProviderPage'
 import SettingsPage from './pages/SettingsPage'
 import UploadQueuePage from './pages/UploadQueuePage'
+import { listen } from '@tauri-apps/api/event'
+import { useEffect } from 'react'
+
+function AppContent() {
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    // Listen for navigation events from the menubar window
+    const unlisten = listen('navigate', (event) => {
+      const route = event.payload as string
+      navigate(route)
+    })
+
+    return () => {
+      unlisten.then(fn => fn())
+    }
+  }, [navigate])
+
+  return (
+    <AppLayout>
+      <Routes>
+        <Route path="/" element={<Navigate to="/overview" replace />} />
+        <Route path="/overview" element={<OverviewPage />} />
+        <Route path="/provider/:providerId" element={<ProviderPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/upload-queue" element={<UploadQueuePage />} />
+      </Routes>
+    </AppLayout>
+  )
+}
 
 function App() {
   const { user, isLoading } = useAuth()
@@ -30,15 +60,7 @@ function App() {
 
   return (
     <Router>
-      <AppLayout>
-        <Routes>
-          <Route path="/" element={<Navigate to="/overview" replace />} />
-          <Route path="/overview" element={<OverviewPage />} />
-          <Route path="/provider/:providerId" element={<ProviderPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/upload-queue" element={<UploadQueuePage />} />
-        </Routes>
-      </AppLayout>
+      <AppContent />
     </Router>
   )
 }

@@ -165,6 +165,7 @@ pub struct ParsedSession {
     pub total_cost: Option<f64>,
     pub tool_count: usize,
     pub file_count: usize,
+    pub cwd: Option<String>,
 }
 
 pub struct OpenCodeParser {
@@ -391,6 +392,7 @@ impl OpenCodeParser {
             total_cost: if total_cost > 0.0 { Some(total_cost) } else { None },
             tool_count,
             file_count,
+            cwd: Some(project.worktree.clone()),
         })
     }
 
