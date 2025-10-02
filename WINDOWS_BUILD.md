@@ -138,17 +138,33 @@ pnpm tauri:build:windows:prod
 ### Build Output
 
 Windows builds generate:
-- **MSI installer**: `apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/`
-- **Executable**: `apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/guideai-desktop.exe`
+- **NSIS installer** (cross-compiled): `apps/desktop/src-tauri/target/x86_64-pc-windows-gnu/release/bundle/nsis/*.exe`
+- **MSI installer** (Windows native only): `apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi`
+
+**Note**: When cross-compiling from Linux, only NSIS installers are produced (MSI requires Windows and WiX toolset).
 
 ### Download Links
 
 Once a release is published, Windows builds are available at:
-- **Versioned**: `https://install.guideai.dev/desktop/v{VERSION}/GuideAI-Desktop-{VERSION}-windows.msi`
-- **Latest**: `https://install.guideai.dev/desktop/latest/GuideAI-Desktop-windows.msi`
+- **Versioned**: `https://install.guideai.dev/desktop/v{VERSION}/GuideAI-Desktop-{VERSION}-windows-setup.exe`
+- **Latest**: `https://install.guideai.dev/desktop/latest/GuideAI-Desktop-windows-setup.exe`
 - **Web UI**: Available on the home page download card at `https://guideai.dev`
 
 ## Important Notes
+
+### NSIS vs MSI Installers
+
+**Why NSIS?**
+- MSI installers can ONLY be created on Windows (requires WiX toolset)
+- NSIS installers CAN be cross-compiled from Linux/macOS
+- Our CI/CD builds Windows on Linux for faster, more reliable builds
+- NSIS provides a standard Windows installer experience
+- Both installer types are functionally equivalent for end users
+
+**When MSI is created:**
+- Only when building on native Windows
+- GitHub Actions workflow uses Linux cross-compilation (produces NSIS)
+- Local Windows builds will produce MSI by default
 
 ### Claude Code on Windows
 
