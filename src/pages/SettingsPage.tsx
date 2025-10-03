@@ -1,7 +1,21 @@
 import { useAuth } from '../hooks/useAuth'
+import { useConfigStore } from '../stores/configStore'
+import Login from '../components/Login'
+import { useState, useEffect } from 'react'
+import { getVersion } from '@tauri-apps/api/app'
 
 function SettingsPage() {
   const { user, logout } = useAuth()
+  const { aiApiKeys, setAiApiKey, deleteAiApiKey } = useConfigStore()
+  const [showClaudeKey, setShowClaudeKey] = useState(false)
+  const [showGeminiKey, setShowGeminiKey] = useState(false)
+  const [claudeKey, setClaudeKey] = useState(aiApiKeys.claude || '')
+  const [geminiKey, setGeminiKey] = useState(aiApiKeys.gemini || '')
+  const [appVersion, setAppVersion] = useState<string>('Loading...')
+
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => setAppVersion('Unknown'))
+  }, [])
 
   const handleLogout = async () => {
     if (confirm('Are you sure you want to logout?')) {
@@ -24,7 +38,7 @@ function SettingsPage() {
           <div className="card-body">
             <h2 className="card-title">Account</h2>
 
-            {user && (
+            {user ? (
               <div className="space-y-4">
                 <div className="flex items-center gap-4">
                   <div className="avatar">
@@ -79,39 +93,154 @@ function SettingsPage() {
                   Logout
                 </button>
               </div>
+            ) : (
+              <div className="py-4">
+                <p className="text-sm text-base-content/70 mb-4">
+                  Login to enable cloud sync features and access your sessions across devices.
+                </p>
+                <Login />
+              </div>
             )}
           </div>
         </div>
 
-        {/* Application Settings */}
+        {/* AI Processing Settings */}
         <div className="card bg-base-100 shadow-sm border border-base-300">
           <div className="card-body">
-            <h2 className="card-title">Application</h2>
+            <h2 className="card-title">AI Processing</h2>
+            <p className="text-sm text-base-content/70 mb-4">
+              Configure API keys to enable AI-powered session summaries and quality assessments.
+              Keys are stored locally and never sent to GuideAI servers.
+            </p>
 
-            <div className="space-y-4">
+            <div className="space-y-6">
+              {/* Claude API Key */}
               <div className="form-control">
                 <label className="label">
-                  <span className="label-text">Theme</span>
+                  <span className="label-text font-medium">Claude API Key</span>
+                  <span className="label-text-alt text-xs">For session summaries & quality scores</span>
                 </label>
-                <select className="select select-bordered w-full max-w-xs">
-                  <option value="guideai">GuideAI (Default)</option>
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
-                </select>
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <input
+                      type={showClaudeKey ? 'text' : 'password'}
+                      placeholder="sk-ant-..."
+                      className="input input-bordered w-full pr-20"
+                      value={claudeKey}
+                      onChange={(e) => setClaudeKey(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 btn btn-ghost btn-sm btn-square"
+                      onClick={() => setShowClaudeKey(!showClaudeKey)}
+                    >
+                      {showClaudeKey ? (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => setAiApiKey('claude', claudeKey)}
+                    disabled={!claudeKey || claudeKey === aiApiKeys.claude}
+                  >
+                    Save
+                  </button>
+                  {aiApiKeys.claude && (
+                    <button
+                      className="btn btn-error btn-outline"
+                      onClick={() => {
+                        deleteAiApiKey('claude')
+                        setClaudeKey('')
+                      }}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                {aiApiKeys.claude && (
+                  <label className="label">
+                    <span className="label-text-alt text-success">✓ Claude API key configured</span>
+                  </label>
+                )}
               </div>
 
+              {/* Gemini API Key */}
               <div className="form-control">
-                <label className="cursor-pointer label justify-start gap-2">
-                  <input type="checkbox" className="checkbox checkbox-primary" defaultChecked />
-                  <span className="label-text">Start with system</span>
+                <label className="label">
+                  <span className="label-text font-medium">Gemini API Key</span>
+                  <span className="label-text-alt text-xs">Alternative to Claude</span>
                 </label>
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <input
+                      type={showGeminiKey ? 'text' : 'password'}
+                      placeholder="AIza..."
+                      className="input input-bordered w-full pr-20"
+                      value={geminiKey}
+                      onChange={(e) => setGeminiKey(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 btn btn-ghost btn-sm btn-square"
+                      onClick={() => setShowGeminiKey(!showGeminiKey)}
+                    >
+                      {showGeminiKey ? (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => setAiApiKey('gemini', geminiKey)}
+                    disabled={!geminiKey || geminiKey === aiApiKeys.gemini}
+                  >
+                    Save
+                  </button>
+                  {aiApiKeys.gemini && (
+                    <button
+                      className="btn btn-error btn-outline"
+                      onClick={() => {
+                        deleteAiApiKey('gemini')
+                        setGeminiKey('')
+                      }}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                {aiApiKeys.gemini && (
+                  <label className="label">
+                    <span className="label-text-alt text-success">✓ Gemini API key configured</span>
+                  </label>
+                )}
               </div>
 
-              <div className="form-control">
-                <label className="cursor-pointer label justify-start gap-2">
-                  <input type="checkbox" className="checkbox checkbox-primary" defaultChecked />
-                  <span className="label-text">Show notifications</span>
-                </label>
+              <div className="alert alert-info">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div className="text-sm">
+                  <p className="font-medium">How to get API keys:</p>
+                  <ul className="mt-1 space-y-1">
+                    <li>• Claude: <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" className="link">console.anthropic.com</a></li>
+                    <li>• Gemini: <a href="https://makersuite.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="link">makersuite.google.com</a></li>
+                  </ul>
+                </div>
               </div>
             </div>
           </div>
@@ -125,7 +254,7 @@ function SettingsPage() {
             <div className="space-y-2">
               <div className="flex justify-between">
                 <span className="text-base-content/70">Version</span>
-                <span>1.0.0</span>
+                <span>{appVersion}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-base-content/70">Build</span>

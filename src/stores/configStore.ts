@@ -1,63 +1,104 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 import { ProviderConfig } from '../types/providers'
-import { invoke } from '@tauri-apps/api'
+import { invoke } from '@tauri-apps/api/core'
+
+interface AiApiKeys {
+  claude?: string
+  gemini?: string
+}
 
 interface ConfigState {
   providerConfigs: Record<string, ProviderConfig>
+  aiApiKeys: AiApiKeys
   isLoading: boolean
   error: string | null
 
-  // Actions
+  // Provider config actions
   loadProviderConfig: (providerId: string) => Promise<void>
   saveProviderConfig: (providerId: string, config: ProviderConfig) => Promise<void>
   deleteProviderConfig: (providerId: string) => Promise<void>
+
+  // AI API key actions
+  setAiApiKey: (provider: 'claude' | 'gemini', apiKey: string) => void
+  deleteAiApiKey: (provider: 'claude' | 'gemini') => void
+  getAiApiKey: (provider: 'claude' | 'gemini') => string | undefined
+
   clearError: () => void
 }
 
-export const useConfigStore = create<ConfigState>((set) => ({
-  providerConfigs: {},
-  isLoading: false,
-  error: null,
+export const useConfigStore = create<ConfigState>()(
+  persist(
+    (set, get) => ({
+      providerConfigs: {},
+      aiApiKeys: {},
+      isLoading: false,
+      error: null,
 
-  loadProviderConfig: async (providerId: string) => {
-    try {
-      set({ isLoading: true, error: null })
-      const config = await invoke<ProviderConfig>('load_provider_config_command', { providerId })
-      set(state => ({
-        providerConfigs: { ...state.providerConfigs, [providerId]: config },
-        isLoading: false
-      }))
-    } catch (error) {
-      set({ error: error as string, isLoading: false })
+      loadProviderConfig: async (providerId: string) => {
+        try {
+          set({ isLoading: true, error: null })
+          const config = await invoke<ProviderConfig>('load_provider_config_command', { providerId })
+          set(state => ({
+            providerConfigs: { ...state.providerConfigs, [providerId]: config },
+            isLoading: false
+          }))
+        } catch (error) {
+          set({ error: error as string, isLoading: false })
+        }
+      },
+
+      saveProviderConfig: async (providerId: string, config: ProviderConfig) => {
+        try {
+          set({ isLoading: true, error: null })
+          await invoke('save_provider_config_command', { providerId, config })
+          set(state => ({
+            providerConfigs: { ...state.providerConfigs, [providerId]: config },
+            isLoading: false
+          }))
+        } catch (error) {
+          set({ error: error as string, isLoading: false })
+        }
+      },
+
+      deleteProviderConfig: async (providerId: string) => {
+        try {
+          set({ isLoading: true, error: null })
+          await invoke('delete_provider_config_command', { providerId })
+          set(state => {
+            const newConfigs = { ...state.providerConfigs }
+            delete newConfigs[providerId]
+            return { providerConfigs: newConfigs, isLoading: false }
+          })
+        } catch (error) {
+          set({ error: error as string, isLoading: false })
+        }
+      },
+
+      setAiApiKey: (provider: 'claude' | 'gemini', apiKey: string) => {
+        set(state => ({
+          aiApiKeys: { ...state.aiApiKeys, [provider]: apiKey }
+        }))
+      },
+
+      deleteAiApiKey: (provider: 'claude' | 'gemini') => {
+        set(state => {
+          const newKeys = { ...state.aiApiKeys }
+          delete newKeys[provider]
+          return { aiApiKeys: newKeys }
+        })
+      },
+
+      getAiApiKey: (provider: 'claude' | 'gemini') => {
+        return get().aiApiKeys[provider]
+      },
+
+      clearError: () => set({ error: null })
+    }),
+    {
+      name: 'guideai-config-storage',
+      // Only persist AI API keys, not provider configs (those are in Tauri backend)
+      partialize: (state) => ({ aiApiKeys: state.aiApiKeys })
     }
-  },
-
-  saveProviderConfig: async (providerId: string, config: ProviderConfig) => {
-    try {
-      set({ isLoading: true, error: null })
-      await invoke('save_provider_config_command', { providerId, config })
-      set(state => ({
-        providerConfigs: { ...state.providerConfigs, [providerId]: config },
-        isLoading: false
-      }))
-    } catch (error) {
-      set({ error: error as string, isLoading: false })
-    }
-  },
-
-  deleteProviderConfig: async (providerId: string) => {
-    try {
-      set({ isLoading: true, error: null })
-      await invoke('delete_provider_config_command', { providerId })
-      set(state => {
-        const newConfigs = { ...state.providerConfigs }
-        delete newConfigs[providerId]
-        return { providerConfigs: newConfigs, isLoading: false }
-      })
-    } catch (error) {
-      set({ error: error as string, isLoading: false })
-    }
-  },
-
-  clearError: () => set({ error: null })
-}))
+  )
+)

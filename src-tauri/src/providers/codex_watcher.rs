@@ -1,28 +1,17 @@
 use crate::config::load_provider_config;
-use crate::logging::{log_debug, log_error, log_info, log_warn};
-use crate::project_metadata::extract_project_metadata;
+use crate::logging::{log_debug, log_error, log_info};
+use crate::providers::db_helpers::insert_session_immediately;
 use crate::upload_queue::UploadQueue;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use shellexpand::tilde;
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 const PROVIDER_ID: &str = "codex";
-const DEBOUNCE_DURATION: Duration = Duration::from_secs(30); // 30 seconds for active sessions
-const QUICK_DEBOUNCE_DURATION: Duration = Duration::from_secs(5); // 5 seconds for new files
-
-// In dev mode, upload much faster for testing
-#[cfg(debug_assertions)]
-const ACTIVE_SESSION_TIMEOUT: Duration = Duration::from_secs(5); // Mark session inactive after 5s (dev mode)
-
-#[cfg(not(debug_assertions))]
-const ACTIVE_SESSION_TIMEOUT: Duration = Duration::from_secs(60); // Mark session inactive after 60s (production)
 
 // Minimum time between re-uploads to prevent spam
 #[cfg(debug_assertions)]
@@ -142,14 +131,10 @@ impl CodexWatcher {
     fn file_event_processor(
         rx: mpsc::Receiver<Result<Event, notify::Error>>,
         sessions_path: PathBuf,
-        upload_queue: Arc<UploadQueue>,
+        _upload_queue: Arc<UploadQueue>,
         is_running: Arc<Mutex<bool>>,
     ) {
-        let mut pending_files: HashMap<PathBuf, FileChangeEvent> = HashMap::new();
         let mut session_states: HashMap<String, SessionState> = HashMap::new();
-
-        // Create a tokio runtime for async operations
-        let rt = tokio::runtime::Runtime::new().unwrap();
 
         loop {
             // Check if we should continue running
@@ -168,12 +153,28 @@ impl CodexWatcher {
                         // Check if this is a new session or significant change (before updating state)
                         let should_log = Self::should_log_event(&file_event, &session_states);
 
+                        // INSERT TO DATABASE IMMEDIATELY (no debounce)
+                        if let Err(e) = insert_session_immediately(
+                            PROVIDER_ID,
+                            &file_event.project_name,
+                            &file_event.session_id,
+                            &file_event.path,
+                            file_event.file_size,
+                        ) {
+                            if let Err(log_err) = log_error(
+                                PROVIDER_ID,
+                                &format!("Failed to insert session to database: {}", e),
+                            ) {
+                                eprintln!("Logging error: {}", log_err);
+                            }
+                        }
+
                         // Update session state immediately to prevent duplicate events
                         Self::update_session_state(&mut session_states, &file_event);
 
                         if should_log {
                             if file_event.is_new_session {
-                                let log_message = format!("🆕 New Codex session detected: {} → Queuing for upload", file_event.session_id);
+                                let log_message = format!("🆕 New Codex session detected: {} → Saved to database", file_event.session_id);
                                 if let Err(e) = log_info(PROVIDER_ID, &log_message) {
                                     eprintln!("Logging error: {}", e);
                                 }
@@ -185,8 +186,6 @@ impl CodexWatcher {
                                 }
                             }
                         }
-
-                        pending_files.insert(file_event.path.clone(), file_event);
                     }
                 }
                 Ok(Err(error)) => {
@@ -195,7 +194,7 @@ impl CodexWatcher {
                     }
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
-                    // Timeout is normal, continue to check pending files
+                    // Timeout is normal, continue watching
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
                     if let Err(e) = log_error(PROVIDER_ID, "Codex file watcher channel disconnected") {
@@ -204,94 +203,6 @@ impl CodexWatcher {
                     break;
                 }
             }
-
-            // Check for files ready to upload (smart debouncing)
-            let now = Instant::now();
-            let mut ready_files = Vec::new();
-
-            for (path, file_event) in &pending_files {
-                let debounce_duration = if file_event.is_new_session {
-                    QUICK_DEBOUNCE_DURATION
-                } else {
-                    DEBOUNCE_DURATION
-                };
-
-                let should_upload = if file_event.is_new_session {
-                    // Upload new sessions more quickly
-                    now.duration_since(file_event.last_modified) >= debounce_duration
-                } else {
-                    // For existing sessions, check if session has become inactive
-                    Self::should_upload_session(&file_event.session_id, &session_states, now)
-                };
-
-                if should_upload {
-                    ready_files.push(path.clone());
-                }
-            }
-
-            // Process ready files
-            for path in ready_files {
-                if let Some(file_event) = pending_files.remove(&path) {
-                    // Mark session as uploaded and track upload metadata
-                    if let Some(session_state) = session_states.get_mut(&file_event.session_id) {
-                        session_state.upload_pending = true;
-                        session_state.last_uploaded_time = Some(now);
-                        session_state.last_uploaded_size = file_event.file_size;
-                    }
-
-                    // Extract CWD and process project metadata if this is a new session
-                    let cwd_for_metadata = if file_event.is_new_session {
-                        Self::extract_cwd_from_file(&file_event.path)
-                    } else {
-                        None
-                    };
-
-                    if let Err(e) = upload_queue.add_item(
-                        PROVIDER_ID,
-                        &file_event.project_name,
-                        file_event.path.clone(),
-                    ) {
-                        if let Err(log_err) = log_error(
-                            PROVIDER_ID,
-                            &format!("✗ Failed to queue Codex session {} for upload: {}", file_event.session_id, e),
-                        ) {
-                            eprintln!("Logging error: {}", log_err);
-                        }
-                    } else {
-                        if let Err(e) = log_info(
-                            PROVIDER_ID,
-                            &format!("📤 Codex session {} queued for upload ({})", file_event.session_id, file_event.path.file_name().unwrap_or_default().to_string_lossy()),
-                        ) {
-                            eprintln!("Logging error: {}", e);
-                        }
-
-                        // Process project metadata if this is a new session
-                        if let Some(cwd) = cwd_for_metadata {
-                            if let Err(e) = log_info(
-                                PROVIDER_ID,
-                                &format!("📁 Extracting project metadata from: {}", cwd),
-                            ) {
-                                eprintln!("Logging error: {}", e);
-                            }
-
-                            let upload_queue_clone = Arc::clone(&upload_queue);
-                            rt.block_on(async move {
-                                if let Some(project_name) = Self::process_project_metadata(&cwd, upload_queue_clone).await {
-                                    if let Err(e) = log_info(
-                                        PROVIDER_ID,
-                                        &format!("✓ Project metadata processed: {}", project_name),
-                                    ) {
-                                        eprintln!("Logging error: {}", e);
-                                    }
-                                }
-                            });
-                        }
-                    }
-                }
-            }
-
-            // Clean up old session states
-            Self::cleanup_old_sessions(&mut session_states, now);
         }
 
         if let Err(e) = log_info(PROVIDER_ID, "🛑 Codex file monitoring stopped") {
@@ -475,96 +386,6 @@ impl CodexWatcher {
         }
     }
 
-    fn should_upload_session(session_id: &str, session_states: &HashMap<String, SessionState>, now: Instant) -> bool {
-        if let Some(session_state) = session_states.get(session_id) {
-            // Upload if session has been inactive for the timeout duration and upload not already pending
-            now.duration_since(session_state.last_modified) >= ACTIVE_SESSION_TIMEOUT && !session_state.upload_pending
-        } else {
-            false
-        }
-    }
-
-    fn cleanup_old_sessions(session_states: &mut HashMap<String, SessionState>, now: Instant) {
-        // Remove sessions that are older than 5 minutes and have been uploaded
-        let cleanup_threshold = Duration::from_secs(300); // 5 minutes
-
-        session_states.retain(|_, state| {
-            now.duration_since(state.last_modified) < cleanup_threshold || !state.upload_pending
-        });
-    }
-
-    /// Extract CWD from Codex JSONL file
-    fn extract_cwd_from_file(file_path: &Path) -> Option<String> {
-        let content = fs::read_to_string(file_path).ok()?;
-        let lines: Vec<&str> = content.lines().filter(|line| !line.trim().is_empty()).collect();
-
-        // Scan all entries for first one with cwd field
-        for line in lines {
-            if let Ok(entry) = serde_json::from_str::<Value>(line) {
-                // Check for direct cwd field
-                if let Some(cwd) = entry.get("cwd").and_then(|v| v.as_str()) {
-                    return Some(cwd.to_string());
-                }
-                // Check for payload.cwd field (Codex format)
-                if let Some(cwd) = entry.get("payload")
-                    .and_then(|p| p.get("cwd"))
-                    .and_then(|v| v.as_str()) {
-                    return Some(cwd.to_string());
-                }
-            }
-        }
-
-        None
-    }
-
-    /// Process project metadata and upload if needed
-    async fn process_project_metadata(
-        cwd: &str,
-        upload_queue: Arc<UploadQueue>,
-    ) -> Option<String> {
-        // Extract project metadata from CWD
-        let metadata = match extract_project_metadata(cwd) {
-            Ok(m) => m,
-            Err(e) => {
-                if let Err(log_err) = log_warn(
-                    PROVIDER_ID,
-                    &format!("⚠ Failed to extract project metadata from {}: {}", cwd, e),
-                ) {
-                    eprintln!("Logging error: {}", log_err);
-                }
-                return None;
-            }
-        };
-
-        let project_name = metadata.project_name.clone();
-
-        // Always upload project metadata (server will handle upsert)
-        if let Err(e) = log_info(
-            PROVIDER_ID,
-            &format!("📦 Uploading project metadata: {}", project_name),
-        ) {
-            eprintln!("Logging error: {}", e);
-        }
-
-        if let Err(e) = upload_queue.upload_project_metadata(&metadata).await {
-            if let Err(log_err) = log_error(
-                PROVIDER_ID,
-                &format!("✗ Failed to upload project metadata for {}: {}", project_name, e),
-            ) {
-                eprintln!("Logging error: {}", log_err);
-            }
-            return None;
-        }
-
-        if let Err(e) = log_info(
-            PROVIDER_ID,
-            &format!("✓ Project metadata processed: {}", project_name),
-        ) {
-            eprintln!("Logging error: {}", e);
-        }
-
-        Some(project_name)
-    }
 
     pub fn stop(&self) {
         if let Ok(mut running) = self.is_running.lock() {

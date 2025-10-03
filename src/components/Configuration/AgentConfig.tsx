@@ -1,7 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { CodingAgent, ProviderConfig } from '../../types/providers'
 import { useProviderConfig, useSaveProviderConfig, useScanProjects } from '../../hooks/useProviderConfig'
-import { useSessionSync } from '../../hooks/useSessionSync'
+import { useAuth } from '../../hooks/useAuth'
+import { useLocation } from 'react-router-dom'
+import ConfirmDialog from '../ConfirmDialog'
 import {
   useClaudeWatcherStatus,
   useStartClaudeWatcher,
@@ -18,7 +20,6 @@ import {
   useStopCodexWatcher
 } from '../../hooks/useCodexWatcher'
 import { formatDistanceToNow } from 'date-fns'
-import SessionSync from './SessionSync'
 import ProviderIcon from '../icons/ProviderIcon'
 
 interface AgentConfigProps {
@@ -27,13 +28,16 @@ interface AgentConfigProps {
 }
 
 function AgentConfig({ agent, headerActions }: AgentConfigProps) {
+  const { user } = useAuth()
+  const location = useLocation()
   const { data: config, isLoading: configLoading } = useProviderConfig(agent.id)
   const { mutate: saveConfig, isPending: saving } = useSaveProviderConfig()
-  const { resetProgress } = useSessionSync(agent.id)
 
-  // Track previous selected projects to detect changes
-  const prevSelectedProjectsRef = useRef<string[]>([])
-  const prevProjectSelectionRef = useRef<'ALL' | 'SELECTED'>('ALL')
+  // Track flash animation state for sync mode navigation
+  const [shouldFlash, setShouldFlash] = useState(false)
+
+  // Track pending sync mode change for confirmation
+  const [pendingSyncMode, setPendingSyncMode] = useState<'Transcript and Metrics' | null>(null)
 
   // Watcher hooks - conditional based on provider
   const { data: claudeWatcherStatus } = useClaudeWatcherStatus()
@@ -70,7 +74,8 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
     homeDirectory: agent.defaultHomeDirectory,
     projectSelection: 'ALL',
     selectedProjects: [],
-    lastScanned: null
+    lastScanned: null,
+    syncMode: 'Nothing'
   })
 
   const effectiveHomeDirectory = localConfig.homeDirectory || agent.defaultHomeDirectory
@@ -89,33 +94,27 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
     }
   }, [config])
 
-  // Reset session sync progress when selected projects change
+  // Handle hash-based navigation for sync-mode highlighting
   useEffect(() => {
-    // Skip on initial mount
-    if (prevSelectedProjectsRef.current.length === 0 && prevProjectSelectionRef.current === 'ALL') {
-      prevSelectedProjectsRef.current = localConfig.selectedProjects
-      prevProjectSelectionRef.current = localConfig.projectSelection
-      return
+    if (location.hash === '#sync-mode') {
+      setShouldFlash(true)
+
+      // Scroll to sync mode section
+      setTimeout(() => {
+        const element = document.getElementById('sync-mode')
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      }, 100)
+
+      // Remove flash and hash after 3 seconds
+      setTimeout(() => {
+        setShouldFlash(false)
+        window.history.replaceState(null, '', location.pathname)
+      }, 3000)
     }
+  }, [location.hash, location.pathname])
 
-    // Check if project selection mode changed
-    const modeChanged = prevProjectSelectionRef.current !== localConfig.projectSelection
-
-    // Check if selected projects changed (only relevant when in SELECTED mode)
-    const projectsChanged = localConfig.projectSelection === 'SELECTED' && (
-      prevSelectedProjectsRef.current.length !== localConfig.selectedProjects.length ||
-      !prevSelectedProjectsRef.current.every(p => localConfig.selectedProjects.includes(p))
-    )
-
-    // Reset if either changed
-    if (modeChanged || projectsChanged) {
-      resetProgress()
-    }
-
-    // Update refs
-    prevSelectedProjectsRef.current = localConfig.selectedProjects
-    prevProjectSelectionRef.current = localConfig.projectSelection
-  }, [localConfig.selectedProjects, localConfig.projectSelection, resetProgress])
 
 
   const handleEnabledChange = (enabled: boolean) => {
@@ -149,6 +148,16 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
   }
 
   const handleConfigChange = (updates: Partial<ProviderConfig>) => {
+    // Check if changing sync mode from "Nothing" to "Transcript and Metrics"
+    if (updates.syncMode === 'Transcript and Metrics' && localConfig.syncMode === 'Nothing') {
+      setPendingSyncMode('Transcript and Metrics')
+      return // Show confirmation dialog
+    }
+
+    applySyncModeChange(updates)
+  }
+
+  const applySyncModeChange = (updates: Partial<ProviderConfig>) => {
     const newConfig = {
       ...localConfig,
       ...updates,
@@ -172,6 +181,17 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
         }
       }
     }
+  }
+
+  const handleConfirmSyncMode = () => {
+    if (pendingSyncMode) {
+      applySyncModeChange({ syncMode: pendingSyncMode })
+      setPendingSyncMode(null)
+    }
+  }
+
+  const handleCancelSyncMode = () => {
+    setPendingSyncMode(null)
   }
 
   const handleProjectToggle = (projectName: string) => {
@@ -248,7 +268,7 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
             {/* Home Directory */}
             <div className="form-control">
               <label className="label">
-                <span className="label-text">Home Directory</span>
+                <span className="label-text text-base font-semibold">Home Directory</span>
               </label>
               <input
                 type="text"
@@ -260,33 +280,84 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
               />
             </div>
 
+            {/* Synchronization Mode - only show if logged in */}
+            {user && (
+              <div
+                className={`form-control transition-all duration-1000 ${shouldFlash ? 'bg-warning/20 -mx-3 px-3 py-2 rounded-lg' : ''}`}
+                id="sync-mode"
+              >
+                <label className="label">
+                  <span className="label-text text-base font-semibold">Synchronization</span>
+                </label>
+                <div className="flex gap-4">
+                  <label className="cursor-pointer flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name={`sync-mode-${agent.id}`}
+                      className="radio radio-primary radio-sm"
+                      checked={localConfig.syncMode === 'Nothing'}
+                      onChange={() => handleConfigChange({ syncMode: 'Nothing' })}
+                      disabled={isConfigLoading}
+                    />
+                    <span className="label-text">Nothing</span>
+                  </label>
+                  <label className="cursor-pointer flex items-center gap-2 opacity-50" title="Coming soon">
+                    <input
+                      type="radio"
+                      name={`sync-mode-${agent.id}`}
+                      className="radio radio-primary radio-sm"
+                      checked={localConfig.syncMode === 'Metrics Only'}
+                      disabled={true}
+                    />
+                    <span className="label-text">Metrics Only</span>
+                  </label>
+                  <label className="cursor-pointer flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name={`sync-mode-${agent.id}`}
+                      className="radio radio-primary radio-sm"
+                      checked={localConfig.syncMode === 'Transcript and Metrics'}
+                      onChange={() => handleConfigChange({ syncMode: 'Transcript and Metrics' })}
+                      disabled={isConfigLoading}
+                    />
+                    <span className="label-text">Transcript & Metrics</span>
+                  </label>
+                </div>
+                {localConfig.syncMode === 'Nothing' && (
+                  <label className="label">
+                    <span className="label-text-alt text-warning">⚠ Sessions will only be stored locally</span>
+                  </label>
+                )}
+              </div>
+            )}
+
             {/* Project Selection */}
             <div className="form-control">
               <label className="label">
-                <span className="label-text">Projects</span>
+                <span className="label-text text-base font-semibold">Projects</span>
               </label>
-              <div className="space-y-1">
-                <label className="cursor-pointer label justify-start gap-2">
+              <div className="flex gap-4">
+                <label className="cursor-pointer flex items-center gap-2">
                   <input
                     type="radio"
                     name={`projects-${agent.id}`}
-                    className="radio radio-primary"
+                    className="radio radio-primary radio-sm"
                     checked={localConfig.projectSelection === 'ALL'}
                     onChange={() => handleConfigChange({ projectSelection: 'ALL' })}
                     disabled={isConfigLoading}
                   />
-                  <span className="label-text">Monitor all projects</span>
+                  <span className="label-text">All projects</span>
                 </label>
-                <label className="cursor-pointer label justify-start gap-2">
+                <label className="cursor-pointer flex items-center gap-2">
                   <input
                     type="radio"
                     name={`projects-${agent.id}`}
-                    className="radio radio-primary"
+                    className="radio radio-primary radio-sm"
                     checked={localConfig.projectSelection === 'SELECTED'}
                     onChange={() => handleConfigChange({ projectSelection: 'SELECTED' })}
                     disabled={isConfigLoading}
                   />
-                  <span className="label-text">Monitor selected projects only</span>
+                  <span className="label-text">Selected only</span>
                 </label>
               </div>
             </div>
@@ -344,7 +415,7 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
             {startWatcher !== undefined && (
               <div className="form-control">
                 <label className="label">
-                  <span className="label-text">File Watching</span>
+                  <span className="label-text text-base font-semibold">File Watching</span>
                 </label>
                 <div className="bg-base-200 rounded-lg p-3 space-y-2">
                   {/* Watcher Status */}
@@ -415,13 +486,6 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
           </div>
         )}
 
-        {/* Historical Session Sync */}
-        {localConfig.enabled && (
-          <div className="mt-4">
-            <SessionSync agent={agent} />
-          </div>
-        )}
-
         {/* Loading indicator */}
         {isConfigLoading && (
           <div className="flex items-center justify-center py-4">
@@ -429,6 +493,18 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
           </div>
         )}
       </div>
+
+      {/* Sync Mode Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={pendingSyncMode !== null}
+        title="Enable Full Synchronization?"
+        message="This will upload all historical and future transcripts and metrics to the server (they can be subsequently deleted there if you need to). Are you sure you want to enable this feature?"
+        confirmText="Enable"
+        cancelText="Cancel"
+        onConfirm={handleConfirmSyncMode}
+        onCancel={handleCancelSyncMode}
+        variant="warning"
+      />
     </div>
   )
 }

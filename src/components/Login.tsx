@@ -27,7 +27,6 @@ export default function Login() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-primary">GuideAI</h1>
-              <p className="text-sm text-base-content/70">Desktop Manager</p>
             </div>
           </div>
           <h2 className="text-base font-medium text-base-content/80">Sign In to Continue</h2>

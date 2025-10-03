@@ -23,20 +23,20 @@ function ProviderIcon({ providerId, className = '', size = 24 }: ProviderIconPro
 
   // Add light background for OpenAI Codex
   const needsBackground = providerId === 'codex'
-  const wrapperClassName = needsBackground ? 'inline-flex items-center justify-center bg-white rounded p-1' : ''
+  const wrapperClassName = needsBackground ? 'inline-flex items-center justify-center bg-white rounded' : ''
 
   const icon = (
     <img
       src={iconPath}
       alt={`${providerId} icon`}
       className={needsBackground ? '' : className}
-      style={{ width: size, height: size }}
+      style={{ width: needsBackground ? size * 0.7 : size, height: needsBackground ? size * 0.7 : size }}
     />
   )
 
   if (needsBackground) {
     return (
-      <div className={`${wrapperClassName} ${className}`}>
+      <div className={`${wrapperClassName} ${className}`} style={{ width: size, height: size }}>
         {icon}
       </div>
     )

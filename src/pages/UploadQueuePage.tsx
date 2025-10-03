@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   useUploadQueueItems,
   useUploadQueueStatus,
@@ -8,10 +9,12 @@ import {
   useClearAllFailed,
   type UploadItem,
 } from '../hooks/useUploadQueue'
+import { useAuth } from '../hooks/useAuth'
 import LogViewer from '../components/LogViewer'
 import { ClipboardDocumentIcon, ArrowPathIcon, XMarkIcon, DocumentTextIcon, ChevronLeftIcon } from '@heroicons/react/24/outline'
 
 function UploadQueuePage() {
+  const { user } = useAuth()
   const { data: queueItems, isLoading: itemsLoading } = useUploadQueueItems()
   const { data: status } = useUploadQueueStatus()
   const retryUpload = useRetryUpload()
@@ -31,10 +34,6 @@ function UploadQueuePage() {
     }
   }
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString)
-    return date.toLocaleString()
-  }
 
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`
@@ -67,70 +66,100 @@ function UploadQueuePage() {
     return null
   }
 
-  const QueueItemCard = ({ item, isPending }: { item: UploadItem; isPending: boolean }) => (
-    <div className="card bg-base-100 border border-base-300 hover:border-base-content/20 transition-colors">
-      <div className="card-body p-4">
-        {/* Header row with filename and actions */}
-        <div className="flex items-start justify-between gap-2 mb-2">
-          <div className="flex-1 min-w-0">
-            <div className="font-medium text-sm mb-1">{item.file_name}</div>
-            <div className="text-xs text-base-content/60 mb-2">
-              <div className="truncate mb-1" title={item.file_path}>
-                {item.file_path}
+  const QueueItemCard = ({ item, isPending }: { item: UploadItem; isPending: boolean }) => {
+    // Extract session ID from filename (remove .jsonl extension and truncate GUID)
+    const displayId = item.file_name.replace('.jsonl', '').slice(0, 8)
+
+    return (
+      <div className="card bg-base-100 border border-base-300 hover:border-base-content/20 transition-colors">
+        <div className="card-body p-3">
+          <div className="flex items-center gap-3">
+            {/* Status badge */}
+            <div className="shrink-0">
+              {getStatusBadge(item, isPending)}
+            </div>
+
+            {/* File info */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-sm font-mono" title={item.file_name}>{displayId}</span>
+                <span className="badge badge-ghost badge-sm shrink-0">{item.provider}</span>
+                <span className="text-xs text-base-content/60 shrink-0">{formatFileSize(item.file_size)}</span>
               </div>
-              <div>Project: {item.project_name}</div>
+              {item.last_error && (
+                <div className="text-xs text-error truncate mt-1" title={item.last_error}>
+                  {item.last_error}
+                </div>
+              )}
+            </div>
+
+            {/* Project name */}
+            <div className="text-xs text-base-content/60 shrink-0 max-w-[200px] truncate" title={item.project_name}>
+              {item.project_name}
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-1 shrink-0">
+              <button
+                className="btn btn-ghost btn-xs"
+                onClick={() => copyToClipboard(item.file_path, item.id)}
+                title="Copy file path"
+              >
+                {copiedId === item.id ? (
+                  <span className="text-success text-xs">✓</span>
+                ) : (
+                  <ClipboardDocumentIcon className="w-4 h-4" />
+                )}
+              </button>
+              {item.last_error && (
+                <button
+                  className="btn btn-ghost btn-xs text-warning"
+                  onClick={() => retryUpload.mutate(item.id)}
+                  disabled={retryUpload.isPending}
+                  title="Retry upload"
+                >
+                  <ArrowPathIcon className="w-4 h-4" />
+                </button>
+              )}
+              <button
+                className="btn btn-ghost btn-xs text-error"
+                onClick={() => removeItem.mutate(item.id)}
+                disabled={removeItem.isPending}
+                title="Remove from queue"
+              >
+                <XMarkIcon className="w-4 h-4" />
+              </button>
             </div>
           </div>
-          <div className="flex gap-1 shrink-0">
-            <button
-              className="btn btn-ghost btn-xs"
-              onClick={() => copyToClipboard(item.file_path, item.id)}
-              title="Copy file path"
-            >
-              {copiedId === item.id ? (
-                <span className="text-success text-xs">✓</span>
-              ) : (
-                <ClipboardDocumentIcon className="w-4 h-4" />
-              )}
-            </button>
-            {item.last_error && (
-              <button
-                className="btn btn-ghost btn-xs text-warning"
-                onClick={() => retryUpload.mutate(item.id)}
-                disabled={retryUpload.isPending}
-                title="Retry upload"
-              >
-                <ArrowPathIcon className="w-4 h-4" />
-              </button>
-            )}
-            <button
-              className="btn btn-ghost btn-xs text-error"
-              onClick={() => removeItem.mutate(item.id)}
-              disabled={removeItem.isPending}
-              title="Remove from queue"
-            >
-              <XMarkIcon className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        {/* Error message if present */}
-        {item.last_error && (
-          <div className="text-xs text-error mb-2 p-2 bg-error/10 rounded" title={item.last_error}>
-            {item.last_error}
-          </div>
-        )}
-
-        {/* Footer row with metadata */}
-        <div className="flex items-center gap-3 flex-wrap text-xs text-base-content/70">
-          <div className="badge badge-ghost badge-sm">{item.provider}</div>
-          {getStatusBadge(item, isPending)}
-          <span>{formatDate(item.queued_at)}</span>
-          <span>{formatFileSize(item.file_size)}</span>
         </div>
       </div>
-    </div>
-  )
+    )
+  }
+
+  if (!user) {
+    return (
+      <div className="p-6">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-base-content">Upload Queue</h1>
+          <p className="text-sm text-base-content/70">
+            Manage pending and failed session uploads
+          </p>
+        </div>
+
+        <div className="card bg-base-100 shadow-sm border border-base-300">
+          <div className="card-body">
+            <p className="text-base-content/70">
+              Uploading to the GuideAI server is only possible if you are logged in.{' '}
+              <Link to="/settings" className="link link-primary">
+                Go to settings to log in
+              </Link>
+              .
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   if (showLogs) {
     return (

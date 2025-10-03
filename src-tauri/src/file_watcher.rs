@@ -3,7 +3,7 @@ use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watche
 use std::path::Path;
 use std::sync::mpsc;
 use std::time::Duration;
-use tauri::Window;
+use tauri::{Emitter, Window};
 
 pub struct ConfigFileWatcher {
     _watcher: RecommendedWatcher,

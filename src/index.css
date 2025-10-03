@@ -1,3 +1,27 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Colorful gradient backgrounds for main content area */
+[data-theme="guideai-light"] .main-gradient {
+  background: linear-gradient(
+    135deg,
+    #dbeafe 0%,    /* blue-100 */
+    #d1fae5 25%,   /* emerald-100 */
+    #ccfbf1 50%,   /* teal-100 */
+    #e0e7ff 75%,   /* indigo-100 */
+    #fae8ff 100%   /* fuchsia-100 */
+  );
+}
+
+[data-theme="guideai-dark"] .main-gradient,
+[data-theme="guideai"] .main-gradient {
+  background: linear-gradient(
+    135deg,
+    #020617 0%,    /* slate-950 */
+    #020617 25%,   /* slate-950 */
+    #0f172a 50%,   /* slate-900 */
+    #020617 75%,   /* slate-950 */
+    #020617 100%   /* slate-950 */
+  );
+}

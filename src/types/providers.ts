@@ -1,5 +1,7 @@
 export type ProjectSelection = 'ALL' | 'SELECTED'
 
+export type SyncMode = 'Nothing' | 'Metrics Only' | 'Transcript and Metrics'
+
 export interface Project {
   name: string
   path: string
@@ -12,6 +14,7 @@ export interface ProviderConfig {
   projectSelection: ProjectSelection
   selectedProjects: string[]
   lastScanned: string | null
+  syncMode: SyncMode
 }
 
 export interface CodingAgent {

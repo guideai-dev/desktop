@@ -1,0 +1,288 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { invoke } from '@tauri-apps/api/core'
+import type { AgentSession } from '@guideai/types'
+import { useState, useEffect } from 'react'
+
+interface SessionWithMetrics extends AgentSession {
+  filePath?: string
+  syncedToServer?: boolean
+  syncFailedReason?: string | null
+  metrics?: {
+    // Performance
+    response_latency_ms?: number
+    task_completion_time_ms?: number
+    // Usage
+    read_write_ratio?: number
+    input_clarity_score?: number
+    // Quality
+    task_success_rate?: number
+    iteration_count?: number
+    process_quality_score?: number
+    used_plan_mode?: boolean
+    used_todo_tracking?: boolean
+    // Engagement
+    interruption_rate?: number
+    session_length_minutes?: number
+    // Error
+    error_count?: number
+    fatal_errors?: number
+  }
+}
+
+async function fetchSessions(provider?: string): Promise<SessionWithMetrics[]> {
+  // Build query based on provider filter
+  const query = provider
+        ? `
+          SELECT
+            s.*,
+            s.project_id,
+            m.response_latency_ms,
+            m.task_completion_time_ms,
+            m.read_write_ratio,
+            m.input_clarity_score,
+            m.task_success_rate,
+            m.iteration_count,
+            m.process_quality_score,
+            m.used_plan_mode,
+            m.used_todo_tracking,
+            m.interruption_rate,
+            m.session_length_minutes,
+            m.error_count,
+            m.fatal_errors
+          FROM agent_sessions s
+          LEFT JOIN session_metrics m ON s.session_id = m.session_id
+          WHERE s.provider = ?
+          ORDER BY s.session_start_time DESC NULLS LAST
+        `
+        : `
+          SELECT
+            s.*,
+            s.project_id,
+            m.response_latency_ms,
+            m.task_completion_time_ms,
+            m.read_write_ratio,
+            m.input_clarity_score,
+            m.task_success_rate,
+            m.iteration_count,
+            m.process_quality_score,
+            m.used_plan_mode,
+            m.used_todo_tracking,
+            m.interruption_rate,
+            m.session_length_minutes,
+            m.error_count,
+            m.fatal_errors
+          FROM agent_sessions s
+          LEFT JOIN session_metrics m ON s.session_id = m.session_id
+          ORDER BY s.session_start_time DESC NULLS LAST
+        `
+
+  const params = provider ? [provider] : []
+
+  const result: any[] = await invoke('execute_sql', {
+    sql: query,
+    params,
+  })
+
+  console.log(`[useLocalSessions] Loaded ${result.length} sessions from database`)
+
+  // Transform results to include metrics as nested object
+  const sessionsWithMetrics: SessionWithMetrics[] = result.map((row) => {
+    const metrics =
+      row.response_latency_ms !== null ||
+      row.task_completion_time_ms !== null ||
+      row.read_write_ratio !== null
+        ? {
+            response_latency_ms: row.response_latency_ms,
+            task_completion_time_ms: row.task_completion_time_ms,
+            read_write_ratio: row.read_write_ratio,
+            input_clarity_score: row.input_clarity_score,
+            task_success_rate: row.task_success_rate,
+            iteration_count: row.iteration_count,
+            process_quality_score: row.process_quality_score,
+            used_plan_mode: row.used_plan_mode === 1,
+            used_todo_tracking: row.used_todo_tracking === 1,
+            interruption_rate: row.interruption_rate,
+            session_length_minutes: row.session_length_minutes,
+            error_count: row.error_count,
+            fatal_errors: row.fatal_errors,
+          }
+        : undefined
+
+    return {
+      id: row.id,
+      sessionId: row.session_id,
+      provider: row.provider,
+      fileName: row.file_name || '',
+      filePath: row.file_path,
+      userId: '', // Local database doesn't have user info
+      username: '', // Local database doesn't have user info
+      projectName: row.project_name || 'Unknown Project',
+      projectId: row.project_id || null,
+      // Timestamps are stored as milliseconds in SQLite
+      sessionStartTime: row.session_start_time ? new Date(row.session_start_time).toISOString() : null,
+      sessionEndTime: row.session_end_time ? new Date(row.session_end_time).toISOString() : null,
+      fileSize: row.file_size || 0,
+      durationMs: row.duration_ms || null,
+      processingStatus: row.processing_status || 'pending',
+      processedAt: row.processed_at ? new Date(row.processed_at).toISOString() : null,
+      assessmentStatus: row.assessment_status || 'not_started',
+      assessmentCompletedAt: row.assessment_completed_at ? new Date(row.assessment_completed_at).toISOString() : null,
+      aiModelSummary: row.ai_model_summary || null,
+      aiModelQualityScore: row.ai_model_quality_score || null,
+      aiModelMetadata: row.ai_model_metadata ? JSON.parse(row.ai_model_metadata) : null,
+      createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+      uploadedAt: row.uploaded_at ? new Date(row.uploaded_at).toISOString() : new Date().toISOString(),
+      syncedToServer: row.synced_to_server === 1,
+      syncFailedReason: row.sync_failed_reason || null,
+      metrics,
+    }
+  })
+
+  return sessionsWithMetrics
+}
+
+export function useLocalSessions(provider?: string) {
+  const { data: sessions = [], isLoading: loading, error, refetch } = useQuery({
+    queryKey: ['local-sessions', provider],
+    queryFn: () => fetchSessions(provider),
+  })
+
+  return {
+    sessions,
+    loading,
+    error: error ? (error as Error).message : null,
+    refresh: refetch,
+  }
+}
+
+// Hook to invalidate sessions cache from anywhere
+export function useInvalidateSessions() {
+  const queryClient = useQueryClient()
+
+  return () => {
+    queryClient.invalidateQueries({ queryKey: ['local-sessions'] })
+  }
+}
+
+/**
+ * Hook to get a single session with its content and metrics
+ */
+export function useLocalSession(sessionId: string) {
+  const [session, setSession] = useState<SessionWithMetrics | null>(null)
+  const [content, setContent] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    loadSession()
+  }, [sessionId])
+
+  const loadSession = async () => {
+    setLoading(true)
+    setError(null)
+
+    try {
+      // Load session with metrics
+      const sessionResult: any[] = await invoke('execute_sql', {
+        sql: `
+          SELECT
+            s.*,
+            m.response_latency_ms,
+            m.task_completion_time_ms,
+            m.read_write_ratio,
+            m.input_clarity_score,
+            m.task_success_rate,
+            m.iteration_count,
+            m.process_quality_score,
+            m.used_plan_mode,
+            m.used_todo_tracking,
+            m.interruption_rate,
+            m.session_length_minutes,
+            m.error_count,
+            m.fatal_errors,
+            m.improvement_tips
+          FROM agent_sessions s
+          LEFT JOIN session_metrics m ON s.session_id = m.session_id
+          WHERE s.session_id = ?
+        `,
+        params: [sessionId],
+      })
+
+      if (sessionResult.length === 0) {
+        throw new Error('Session not found')
+      }
+
+      const row = sessionResult[0]
+
+      const metrics =
+        row.response_latency_ms !== null ||
+        row.task_completion_time_ms !== null ||
+        row.read_write_ratio !== null
+          ? {
+              response_latency_ms: row.response_latency_ms,
+              task_completion_time_ms: row.task_completion_time_ms,
+              read_write_ratio: row.read_write_ratio,
+              input_clarity_score: row.input_clarity_score,
+              task_success_rate: row.task_success_rate,
+              iteration_count: row.iteration_count,
+              process_quality_score: row.process_quality_score,
+              used_plan_mode: row.used_plan_mode === 1,
+              used_todo_tracking: row.used_todo_tracking === 1,
+              interruption_rate: row.interruption_rate,
+              session_length_minutes: row.session_length_minutes,
+              error_count: row.error_count,
+              fatal_errors: row.fatal_errors,
+              improvement_tips: row.improvement_tips ? row.improvement_tips.split('\n') : [],
+            }
+          : undefined
+
+      const sessionData = {
+        id: row.id,
+        sessionId: row.session_id,
+        provider: row.provider,
+        fileName: row.file_name || '',
+        userId: '', // Local database doesn't have user info
+        username: '', // Local database doesn't have user info
+        projectName: row.project_name || 'Unknown Project',
+        // Timestamps are stored as milliseconds in SQLite
+        sessionStartTime: row.session_start_time ? new Date(row.session_start_time).toISOString() : null,
+        sessionEndTime: row.session_end_time ? new Date(row.session_end_time).toISOString() : null,
+        fileSize: row.file_size || 0,
+        durationMs: row.duration_ms || null,
+        processingStatus: row.processing_status || 'pending',
+        processedAt: row.processed_at ? new Date(row.processed_at).toISOString() : null,
+        assessmentStatus: row.assessment_status || 'not_started',
+        assessmentCompletedAt: row.assessment_completed_at ? new Date(row.assessment_completed_at).toISOString() : null,
+        aiModelSummary: row.ai_model_summary || null,
+        aiModelQualityScore: row.ai_model_quality_score || null,
+        aiModelMetadata: row.ai_model_metadata ? JSON.parse(row.ai_model_metadata) : null,
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+        uploadedAt: row.uploaded_at ? new Date(row.uploaded_at).toISOString() : new Date().toISOString(),
+        filePath: row.file_path,
+        metrics,
+      }
+
+      setSession(sessionData)
+
+      // Load content from file
+      const fileContent: string = await invoke('read_session_file', {
+        filePath: row.file_path,
+      })
+      setContent(fileContent)
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load session'
+      setError(errorMessage)
+      console.error('Error loading session:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return {
+    session,
+    content,
+    loading,
+    error,
+    refresh: loadSession,
+  }
+}

@@ -161,9 +161,13 @@ pub struct ParsedSession {
     pub session_end_time: Option<DateTime<Utc>>,
     pub duration_ms: Option<i64>,
     pub jsonl_content: String,
+    #[allow(dead_code)]
     pub total_tokens: Option<OpenCodeTokens>,
+    #[allow(dead_code)]
     pub total_cost: Option<f64>,
+    #[allow(dead_code)]
     pub tool_count: usize,
+    #[allow(dead_code)]
     pub file_count: usize,
     pub cwd: Option<String>,
 }

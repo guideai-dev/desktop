@@ -4,6 +4,7 @@
 mod auth_server;
 mod commands;
 mod config;
+mod database;
 mod file_watcher;
 mod logging;
 mod project_metadata;
@@ -12,70 +13,99 @@ mod upload_queue;
 
 use commands::{AppState, start_enabled_watchers};
 use file_watcher::start_config_file_watcher;
-use tauri::{
-    CustomMenuItem, LogicalPosition, LogicalSize, Manager, Size, SystemTray, SystemTrayEvent,
-    SystemTrayMenu,
-};
-use tauri_plugin_positioner::{Position, WindowExt};
+use tauri::Manager;
 
 fn main() {
-    let open_window = CustomMenuItem::new("open_window".to_string(), "Open Full Window");
-    let quit = CustomMenuItem::new("quit".to_string(), "Quit").accelerator("Cmd+Q");
-    let system_tray_menu = SystemTrayMenu::new()
-        .add_item(open_window)
-        .add_item(quit);
-
     tauri::Builder::default()
-        .plugin(tauri_plugin_positioner::init())
+        .plugin(
+            tauri_plugin_sql::Builder::new()
+                .add_migrations(
+                    "sqlite:guideai.db",
+                    vec![
+                        tauri_plugin_sql::Migration {
+                            version: 1,
+                            description: "create_agent_sessions",
+                            sql: include_str!("../migrations/001_create_agent_sessions.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                        tauri_plugin_sql::Migration {
+                            version: 2,
+                            description: "create_session_metrics",
+                            sql: include_str!("../migrations/002_create_session_metrics.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                        tauri_plugin_sql::Migration {
+                            version: 3,
+                            description: "add_cwd_column",
+                            sql: include_str!("../migrations/003_add_cwd_column.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                        tauri_plugin_sql::Migration {
+                            version: 4,
+                            description: "add_sync_failed_reason",
+                            sql: include_str!("../migrations/004_add_sync_failed_reason.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                        tauri_plugin_sql::Migration {
+                            version: 5,
+                            description: "unique_session_id",
+                            sql: include_str!("../migrations/005_unique_session_id.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                        tauri_plugin_sql::Migration {
+                            version: 6,
+                            description: "unique_session_metrics",
+                            sql: include_str!("../migrations/006_unique_session_id.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                        tauri_plugin_sql::Migration {
+                            version: 7,
+                            description: "create_projects",
+                            sql: include_str!("../migrations/007_create_projects.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                        tauri_plugin_sql::Migration {
+                            version: 8,
+                            description: "add_project_foreign_key",
+                            sql: include_str!("../migrations/008_add_project_foreign_key.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                    ],
+                )
+                .build(),
+        )
+        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
-            // Set activation policy to Accessory so app doesn't appear in dock or cmd-tab
-            #[cfg(target_os = "macos")]
-            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
             // Initialize logging system
             if let Err(e) = logging::init_logging() {
                 eprintln!("Failed to initialize logging: {}", e);
             }
 
+            // Initialize database
+            if let Err(e) = database::init_database() {
+                eprintln!("Failed to initialize database: {}", e);
+            }
+
+            // Set app handle on database for event emission
+            database::set_app_handle(app.handle().clone());
+
             // Initialize application state
             let app_state = AppState::new();
+
+            // Set app handle on upload queue for event emission
+            app_state.upload_queue.set_app_handle(app.handle().clone());
 
             // Start enabled file watchers
             start_enabled_watchers(&app_state);
 
             app.manage(app_state);
 
-            // Get references to both windows
-            let status_window = app.get_window("status").unwrap();
-            let main_window = app.get_window("main").unwrap();
-
-            // Both windows hidden on startup
-            status_window.hide().unwrap();
-            main_window.hide().unwrap();
-
-            // Configure main window size (90% of monitor)
-            if let Ok(Some(monitor)) = main_window.current_monitor() {
-                let scale_factor = monitor.scale_factor();
-                let size = monitor.size().to_logical::<f64>(scale_factor);
-                let position = monitor.position().to_logical::<f64>(scale_factor);
-
-                let logical_width = (size.width * 0.9).round();
-                let logical_height = (size.height * 0.9).round();
-
-                let centered_x = position.x + (size.width - logical_width) / 2.0;
-                let centered_y = position.y + (size.height - logical_height) / 2.0;
-
-                let _ = main_window.set_size(Size::Logical(LogicalSize::new(
-                    logical_width,
-                    logical_height,
-                )));
-                let _ = main_window.set_position(tauri::Position::Logical(LogicalPosition::new(
-                    centered_x, centered_y,
-                )));
-            }
+            // Get reference to main window for config file watcher
+            let main_window = app.get_webview_window("main").unwrap();
 
             // Start config file watcher with main window for event emission
-            match start_config_file_watcher(main_window.clone()) {
+            match start_config_file_watcher(main_window.as_ref().window()) {
                 Ok(_watcher) => {
                     // Store the watcher in app state so it doesn't get dropped
                     app.manage(_watcher);
@@ -88,68 +118,10 @@ fn main() {
 
             Ok(())
         })
-        .system_tray(SystemTray::new().with_menu(system_tray_menu))
-        .on_system_tray_event(|app, event| {
-            tauri_plugin_positioner::on_tray_event(app, &event);
-            match event {
-                SystemTrayEvent::LeftClick {
-                    position: _,
-                    size: _,
-                    ..
-                } => {
-                    let status_window = app.get_window("status").unwrap();
-                    let _ = status_window.move_window(Position::TrayCenter);
-
-                    if status_window.is_visible().unwrap() {
-                        status_window.hide().unwrap();
-                    } else {
-                        status_window.show().unwrap();
-                        status_window.set_focus().unwrap();
-                    }
-                }
-                SystemTrayEvent::MenuItemClick { id, .. } => match id.as_str() {
-                    "open_window" => {
-                        let main_window = app.get_window("main").unwrap();
-                        main_window.show().unwrap();
-                        main_window.set_focus().unwrap();
-                    }
-                    "quit" => {
-                        std::process::exit(0);
-                    }
-                    _ => {}
-                },
-                _ => {}
-            }
-        })
-        .on_window_event(|event| {
-            let window_label = event.window().label();
-
-            match event.event() {
-                tauri::WindowEvent::Focused(is_focused) => {
-                    // Only hide status window on focus loss (menubar popup behavior)
-                    if !is_focused && window_label == "status" {
-                        event.window().hide().unwrap();
-                    }
-                }
-                tauri::WindowEvent::CloseRequested { api, .. } => {
-                    if window_label == "status" {
-                        // Status window: prevent close and hide instead
-                        api.prevent_close();
-                        event.window().hide().unwrap();
-                    } else if window_label == "main" {
-                        // Main window: prevent close and hide instead
-                        api.prevent_close();
-                        event.window().hide().unwrap();
-                    }
-                }
-                _ => {}
-            }
-        })
         .invoke_handler(tauri::generate_handler![
             commands::load_config_command,
             commands::save_config_command,
             commands::clear_config_command,
-            commands::open_main_window,
             commands::login_command,
             commands::logout_command,
             commands::load_provider_config_command,
@@ -177,7 +149,13 @@ fn main() {
             commands::scan_historical_sessions,
             commands::sync_historical_sessions,
             commands::get_session_sync_progress,
-            commands::reset_session_sync_progress
+            commands::reset_session_sync_progress,
+            commands::execute_sql,
+            commands::get_session_content,
+            commands::clear_all_sessions,
+            commands::get_all_projects,
+            commands::get_project_by_id,
+            commands::open_folder_in_os
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

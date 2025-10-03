@@ -1,29 +1,18 @@
 use super::opencode_parser::OpenCodeParser;
 use crate::config::load_provider_config;
-use crate::logging::{log_debug, log_error, log_info, log_warn};
-use crate::project_metadata::extract_project_metadata;
+use crate::logging::{log_debug, log_error, log_info};
+use crate::providers::db_helpers::insert_session_immediately;
 use crate::upload_queue::UploadQueue;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use shellexpand::tilde;
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 const PROVIDER_ID: &str = "opencode";
-const DEBOUNCE_DURATION: Duration = Duration::from_secs(30); // 30 seconds for active sessions
-const QUICK_DEBOUNCE_DURATION: Duration = Duration::from_secs(5); // 5 seconds for new sessions
-
-// In dev mode, upload much faster for testing
-#[cfg(debug_assertions)]
-const ACTIVE_SESSION_TIMEOUT: Duration = Duration::from_secs(5); // Mark session inactive after 5s (dev mode)
-
-#[cfg(not(debug_assertions))]
-const ACTIVE_SESSION_TIMEOUT: Duration = Duration::from_secs(60); // Mark session inactive after 60s (production)
 
 // Minimum time between re-uploads to prevent spam
 #[cfg(debug_assertions)]
@@ -50,7 +39,8 @@ pub struct SessionState {
     pub upload_pending: bool,
     pub affected_files: HashSet<PathBuf>,
     pub last_uploaded_time: Option<Instant>,
-    pub last_uploaded_size: usize, // Total size of all affected files
+    #[allow(dead_code)]
+    pub last_uploaded_size: usize,
 }
 
 #[derive(Debug)]
@@ -184,14 +174,10 @@ impl OpenCodeWatcher {
         storage_path: PathBuf,
         parser: OpenCodeParser,
         projects_to_watch: Vec<String>,
-        upload_queue: Arc<UploadQueue>,
+        _upload_queue: Arc<UploadQueue>,
         is_running: Arc<Mutex<bool>>,
     ) {
-        let mut pending_sessions: HashMap<String, SessionChangeEvent> = HashMap::new();
         let mut session_states: HashMap<String, SessionState> = HashMap::new();
-
-        // Create a tokio runtime for async operations
-        let rt = tokio::runtime::Runtime::new().unwrap();
 
         loop {
             // Check if we should continue running
@@ -210,13 +196,34 @@ impl OpenCodeWatcher {
                         // Check if this is a new session or significant change
                         let should_log = Self::should_log_event(&session_event, &session_states);
 
+                        // INSERT TO DATABASE IMMEDIATELY (no debounce)
+                        // Use first affected file for path/size tracking
+                        if let Some(first_file) = session_event.affected_files.first() {
+                            let file_size = first_file.metadata().map(|m| m.len()).unwrap_or(0);
+
+                            if let Err(e) = insert_session_immediately(
+                                PROVIDER_ID,
+                                &session_event.project_id,
+                                &session_event.session_id,
+                                first_file,
+                                file_size,
+                            ) {
+                                if let Err(log_err) = log_error(
+                                    PROVIDER_ID,
+                                    &format!("Failed to insert session to database: {}", e),
+                                ) {
+                                    eprintln!("Logging error: {}", log_err);
+                                }
+                            }
+                        }
+
                         // Update session state immediately to prevent duplicate events
                         Self::update_session_state(&mut session_states, &session_event);
 
                         if should_log {
                             if session_event.is_new_session {
                                 let log_message = format!(
-                                    "🆕 New OpenCode session detected: {} (project: {}) → Queuing for upload",
+                                    "🆕 New OpenCode session detected: {} (project: {}) → Saved to database",
                                     session_event.session_id, session_event.project_id
                                 );
                                 if let Err(e) = log_info(PROVIDER_ID, &log_message) {
@@ -233,8 +240,6 @@ impl OpenCodeWatcher {
                                 }
                             }
                         }
-
-                        pending_sessions.insert(session_event.session_id.clone(), session_event);
                     }
                 }
                 Ok(Err(error)) => {
@@ -243,7 +248,7 @@ impl OpenCodeWatcher {
                     }
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
-                    // Timeout is normal, continue to check pending sessions
+                    // Timeout is normal, continue watching
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
                     if let Err(e) = log_error(PROVIDER_ID, "OpenCode file watcher channel disconnected") {
@@ -252,108 +257,6 @@ impl OpenCodeWatcher {
                     break;
                 }
             }
-
-            // Check for sessions ready to upload (smart debouncing)
-            let now = Instant::now();
-            let mut ready_sessions = Vec::new();
-
-            for (session_id, session_event) in &pending_sessions {
-                let debounce_duration = if session_event.is_new_session {
-                    QUICK_DEBOUNCE_DURATION
-                } else {
-                    DEBOUNCE_DURATION
-                };
-
-                let should_upload = if session_event.is_new_session {
-                    // Upload new sessions more quickly
-                    now.duration_since(session_event.last_modified) >= debounce_duration
-                } else {
-                    // For existing sessions, check if session has become inactive
-                    Self::should_upload_session(session_id, &session_states, now)
-                };
-
-                if should_upload {
-                    ready_sessions.push(session_id.clone());
-                }
-            }
-
-            // Process ready sessions
-            for session_id in ready_sessions {
-                if let Some(session_event) = pending_sessions.remove(&session_id) {
-                    // Mark session as uploaded and track upload metadata
-                    if let Some(session_state) = session_states.get_mut(&session_event.session_id) {
-                        session_state.upload_pending = true;
-                        session_state.last_uploaded_time = Some(now);
-                        session_state.last_uploaded_size = session_state.affected_files.len();
-                    }
-
-                    // Extract worktree and process project metadata if this is a new session
-                    let worktree_for_metadata = if session_event.is_new_session {
-                        Self::extract_worktree_from_project(&storage_path, &session_event.project_id)
-                    } else {
-                        None
-                    };
-
-                    // Parse the session and create upload
-                    match parser.parse_session(&session_event.session_id) {
-                        Ok(parsed_session) => {
-                            if let Err(e) = upload_queue.add_session_content(
-                                PROVIDER_ID,
-                                &parsed_session.project_name,
-                                &parsed_session.session_id,
-                                parsed_session.jsonl_content,
-                            ) {
-                                if let Err(log_err) = log_error(
-                                    PROVIDER_ID,
-                                    &format!("✗ Failed to queue OpenCode session {} for upload: {}", session_event.session_id, e),
-                                ) {
-                                    eprintln!("Logging error: {}", log_err);
-                                }
-                            } else {
-                                if let Err(e) = log_info(
-                                    PROVIDER_ID,
-                                    &format!("📤 OpenCode session {} queued for upload (project: {})", session_event.session_id, session_event.project_id),
-                                ) {
-                                    eprintln!("Logging error: {}", e);
-                                }
-
-                                // Process project metadata if this is a new session
-                                if let Some(worktree) = worktree_for_metadata {
-                                    if let Err(e) = log_info(
-                                        PROVIDER_ID,
-                                        &format!("📁 Extracting project metadata from: {}", worktree),
-                                    ) {
-                                        eprintln!("Logging error: {}", e);
-                                    }
-
-                                    let upload_queue_clone = Arc::clone(&upload_queue);
-                                    rt.block_on(async move {
-                                        if let Some(project_name) = Self::process_project_metadata(&worktree, upload_queue_clone).await {
-                                            if let Err(e) = log_info(
-                                                PROVIDER_ID,
-                                                &format!("✓ Project metadata processed: {}", project_name),
-                                            ) {
-                                                eprintln!("Logging error: {}", e);
-                                            }
-                                        }
-                                    });
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            if let Err(log_err) = log_error(
-                                PROVIDER_ID,
-                                &format!("✗ Failed to parse OpenCode session {}: {}", session_event.session_id, e),
-                            ) {
-                                eprintln!("Logging error: {}", log_err);
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Clean up old session states
-            Self::cleanup_old_sessions(&mut session_states, now);
         }
 
         if let Err(e) = log_info(PROVIDER_ID, "🛑 OpenCode file monitoring stopped") {
@@ -553,88 +456,6 @@ impl OpenCodeWatcher {
         }
     }
 
-    fn should_upload_session(session_id: &str, session_states: &HashMap<String, SessionState>, now: Instant) -> bool {
-        if let Some(session_state) = session_states.get(session_id) {
-            // Upload if session has been inactive for the timeout duration and upload not already pending
-            now.duration_since(session_state.last_modified) >= ACTIVE_SESSION_TIMEOUT && !session_state.upload_pending
-        } else {
-            false
-        }
-    }
-
-    fn cleanup_old_sessions(session_states: &mut HashMap<String, SessionState>, now: Instant) {
-        // Remove sessions that are older than 5 minutes and have been uploaded
-        let cleanup_threshold = Duration::from_secs(300); // 5 minutes
-
-        session_states.retain(|_, state| {
-            now.duration_since(state.last_modified) < cleanup_threshold || !state.upload_pending
-        });
-    }
-
-    /// Extract worktree (CWD) from OpenCode project file
-    fn extract_worktree_from_project(storage_path: &Path, project_id: &str) -> Option<String> {
-        let project_file = storage_path.join("project").join(format!("{}.json", project_id));
-
-        if !project_file.exists() {
-            return None;
-        }
-
-        let content = fs::read_to_string(&project_file).ok()?;
-        let json: Value = serde_json::from_str(&content).ok()?;
-
-        json.get("worktree")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-    }
-
-    /// Process project metadata and upload if needed
-    async fn process_project_metadata(
-        cwd: &str,
-        upload_queue: Arc<UploadQueue>,
-    ) -> Option<String> {
-        // Extract project metadata from CWD
-        let metadata = match extract_project_metadata(cwd) {
-            Ok(m) => m,
-            Err(e) => {
-                if let Err(log_err) = log_warn(
-                    PROVIDER_ID,
-                    &format!("⚠ Failed to extract project metadata from {}: {}", cwd, e),
-                ) {
-                    eprintln!("Logging error: {}", log_err);
-                }
-                return None;
-            }
-        };
-
-        let project_name = metadata.project_name.clone();
-
-        // Always upload project metadata (server will handle upsert)
-        if let Err(e) = log_info(
-            PROVIDER_ID,
-            &format!("📦 Uploading project metadata: {}", project_name),
-        ) {
-            eprintln!("Logging error: {}", e);
-        }
-
-        if let Err(e) = upload_queue.upload_project_metadata(&metadata).await {
-            if let Err(log_err) = log_error(
-                PROVIDER_ID,
-                &format!("✗ Failed to upload project metadata for {}: {}", project_name, e),
-            ) {
-                eprintln!("Logging error: {}", log_err);
-            }
-            return None;
-        }
-
-        if let Err(e) = log_info(
-            PROVIDER_ID,
-            &format!("✓ Project metadata processed: {}", project_name),
-        ) {
-            eprintln!("Logging error: {}", e);
-        }
-
-        Some(project_name)
-    }
 
     pub fn stop(&self) {
         if let Ok(mut running) = self.is_running.lock() {

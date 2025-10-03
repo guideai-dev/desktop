@@ -1,7 +1,8 @@
 use crate::config::GuideAIConfig;
-use crate::logging::{log_error, log_info, log_warn};
+use crate::database::{get_unsynced_sessions, mark_session_synced, mark_session_sync_failed};
+use crate::logging::{log_debug, log_error, log_info, log_warn};
 use crate::project_metadata::ProjectMetadata;
-use crate::providers::SessionInfo;
+use crate::providers::{SessionInfo, OpenCodeParser};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -14,6 +15,10 @@ use uuid::Uuid;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use serde_json::Value;
+use tauri::Emitter;
+
+// Database polling interval (10 seconds by default, configurable later)
+const DB_POLL_INTERVAL_SECS: u64 = 10;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UploadItem {
@@ -32,6 +37,8 @@ pub struct UploadItem {
     pub session_id: Option<String>,
     // In-memory content for parsed sessions (alternative to file_path)
     pub content: Option<String>,
+    // Working directory for project metadata extraction
+    pub cwd: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,7 +80,7 @@ pub struct ProjectUploadRequest {
     pub detected_project_type: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct UploadQueue {
     queue: Arc<Mutex<VecDeque<UploadItem>>>,
     processing: Arc<Mutex<usize>>,
@@ -81,6 +88,21 @@ pub struct UploadQueue {
     uploaded_hashes: Arc<Mutex<std::collections::HashSet<u64>>>, // Track uploaded file hashes
     is_running: Arc<Mutex<bool>>,
     config: Arc<Mutex<Option<GuideAIConfig>>>,
+    app_handle: Arc<Mutex<Option<tauri::AppHandle>>>,
+}
+
+impl std::fmt::Debug for UploadQueue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UploadQueue")
+            .field("queue", &"<queued items>")
+            .field("processing", &self.processing)
+            .field("failed_items", &"<failed items>")
+            .field("uploaded_hashes", &"<hash set>")
+            .field("is_running", &self.is_running)
+            .field("config", &"<config>")
+            .field("app_handle", &"<app handle>")
+            .finish()
+    }
 }
 
 impl UploadQueue {
@@ -92,12 +114,19 @@ impl UploadQueue {
             uploaded_hashes: Arc::new(Mutex::new(std::collections::HashSet::new())),
             is_running: Arc::new(Mutex::new(false)),
             config: Arc::new(Mutex::new(None)),
+            app_handle: Arc::new(Mutex::new(None)),
         }
     }
 
     pub fn set_config(&self, config: GuideAIConfig) {
         if let Ok(mut config_guard) = self.config.lock() {
             *config_guard = Some(config);
+        }
+    }
+
+    pub fn set_app_handle(&self, app_handle: tauri::AppHandle) {
+        if let Ok(mut handle_guard) = self.app_handle.lock() {
+            *handle_guard = Some(app_handle);
         }
     }
 
@@ -137,6 +166,7 @@ impl UploadQueue {
         (false, Some(format!("No timestamp field found in any of {} lines ({} valid JSON entries)", lines.len(), lines.len() - parse_errors)))
     }
 
+    #[cfg(test)]
     pub fn add_item(&self, provider: &str, project_name: &str, file_path: PathBuf) -> Result<(), String> {
         let file_name = file_path
             .file_name()
@@ -180,6 +210,7 @@ impl UploadQueue {
             file_size,
             session_id: None,
             content: None,
+            cwd: None,
         };
 
         if let Ok(mut queue) = self.queue.lock() {
@@ -306,6 +337,7 @@ impl UploadQueue {
             file_size,
             session_id: Some(session.session_id.clone()),
             content,
+            cwd: session.cwd.clone(),
         };
 
         if let Ok(mut queue) = self.queue.lock() {
@@ -315,6 +347,7 @@ impl UploadQueue {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn add_session_content(
         &self,
         provider: &str,
@@ -363,6 +396,7 @@ impl UploadQueue {
             file_size: content_size,
             session_id: Some(session_id.to_string()),
             content: Some(content),
+            cwd: None,
         };
 
         if let Ok(mut queue) = self.queue.lock() {
@@ -386,12 +420,15 @@ impl UploadQueue {
         let uploaded_hashes_clone = Arc::clone(&self.uploaded_hashes);
         let is_running_clone = Arc::clone(&self.is_running);
         let config_clone = Arc::clone(&self.config);
+        let app_handle_clone = Arc::clone(&self.app_handle);
 
         // Spawn background thread for processing
         thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
                 log_info("upload-queue", "📤 Upload processor started").unwrap_or_default();
+
+                let mut last_db_poll = Utc::now();
 
                 loop {
                     // Check if we should continue running
@@ -403,8 +440,73 @@ impl UploadQueue {
                         }
                     }
 
-                    // Process next item in queue
-                    let item_to_process = {
+                    // Check if we have valid auth before polling/processing
+                    let has_valid_auth = {
+                        if let Ok(config_guard) = config_clone.lock() {
+                            if let Some(ref cfg) = *config_guard {
+                                cfg.api_key.is_some() && cfg.server_url.is_some() && cfg.tenant_id.is_some()
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    };
+
+                    // Only poll database if we have valid auth
+                    let now = Utc::now();
+                    if has_valid_auth && (now - last_db_poll).num_seconds() >= DB_POLL_INTERVAL_SECS as i64 {
+                        match get_unsynced_sessions() {
+                            Ok(unsynced_sessions) => {
+                                if !unsynced_sessions.is_empty() {
+                                    log_info(
+                                        "upload-queue",
+                                        &format!("📊 Found {} unsynced sessions in database", unsynced_sessions.len()),
+                                    ).unwrap_or_default();
+
+                                    // Add unsynced sessions to queue
+                                    if let Ok(mut queue) = queue_clone.lock() {
+                                        for session in unsynced_sessions {
+                                            // Check if already in queue to avoid duplicates
+                                            let already_queued = queue.iter().any(|item| {
+                                                item.session_id.as_ref() == Some(&session.session_id)
+                                            });
+
+                                            if !already_queued {
+                                                let item = UploadItem {
+                                                    id: session.id.clone(),
+                                                    provider: session.provider.clone(),
+                                                    project_name: session.project_name.clone(),
+                                                    file_path: PathBuf::from(&session.file_path),
+                                                    file_name: session.file_name.clone(),
+                                                    queued_at: now,
+                                                    retry_count: 0,
+                                                    next_retry_at: None,
+                                                    last_error: None,
+                                                    file_hash: None,
+                                                    file_size: session.file_size as u64,
+                                                    session_id: Some(session.session_id.clone()),
+                                                    content: None,
+                                                    cwd: session.cwd.clone(),
+                                                };
+                                                queue.push_back(item);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                log_error(
+                                    "upload-queue",
+                                    &format!("Failed to poll database for unsynced sessions: {}", e),
+                                ).unwrap_or_default();
+                            }
+                        }
+                        last_db_poll = now;
+                    }
+
+                    // Process next item in queue (only if we have valid auth)
+                    let item_to_process = if has_valid_auth {
                         if let Ok(mut queue) = queue_clone.lock() {
                             // Check for items ready to retry
                             if let Some(item) = Self::find_ready_item(&mut queue) {
@@ -415,6 +517,8 @@ impl UploadQueue {
                         } else {
                             None
                         }
+                    } else {
+                        None
                     };
 
                     if let Some(mut item) = item_to_process {
@@ -450,6 +554,23 @@ impl UploadQueue {
                                     }
                                 }
 
+                                // Mark session as synced in database
+                                if let Some(ref session_id) = item.session_id {
+                                    if let Err(e) = mark_session_synced(session_id, None) {
+                                        log_error(
+                                            "upload-queue",
+                                            &format!("Failed to mark session {} as synced: {}", session_id, e),
+                                        ).unwrap_or_default();
+                                    } else {
+                                        // Emit event to frontend to refresh session list
+                                        if let Ok(app_handle_guard) = app_handle_clone.lock() {
+                                            if let Some(ref app_handle) = *app_handle_guard {
+                                                let _ = app_handle.emit("session-synced", session_id.clone());
+                                            }
+                                        }
+                                    }
+                                }
+
                                 log_info(
                                     "upload-queue",
                                     &format!("✓ Upload successful: {} (size: {} bytes)", item.file_name, item.file_size),
@@ -465,6 +586,23 @@ impl UploadQueue {
                                     // 400 errors indicate invalid input - don't retry
                                     if let Ok(mut failed) = failed_items_clone.lock() {
                                         failed.push(item.clone());
+                                    }
+
+                                    // Mark session as sync failed in database
+                                    if let Some(ref session_id) = item.session_id {
+                                        if let Err(db_err) = mark_session_sync_failed(session_id, &e) {
+                                            log_error(
+                                                "upload-queue",
+                                                &format!("Failed to mark session {} as sync failed: {}", session_id, db_err),
+                                            ).unwrap_or_default();
+                                        } else {
+                                            // Emit event to frontend to refresh session list
+                                            if let Ok(app_handle_guard) = app_handle_clone.lock() {
+                                                if let Some(ref app_handle) = *app_handle_guard {
+                                                    let _ = app_handle.emit("session-sync-failed", session_id.clone());
+                                                }
+                                            }
+                                        }
                                     }
 
                                     log_error(
@@ -495,6 +633,23 @@ impl UploadQueue {
                                         // Max retries exceeded, move to failed list
                                         if let Ok(mut failed) = failed_items_clone.lock() {
                                             failed.push(item.clone());
+                                        }
+
+                                        // Mark session as sync failed in database after all retries exhausted
+                                        if let Some(ref session_id) = item.session_id {
+                                            if let Err(db_err) = mark_session_sync_failed(session_id, &e) {
+                                                log_error(
+                                                    "upload-queue",
+                                                    &format!("Failed to mark session {} as sync failed: {}", session_id, db_err),
+                                                ).unwrap_or_default();
+                                            } else {
+                                                // Emit event to frontend to refresh session list
+                                                if let Ok(app_handle_guard) = app_handle_clone.lock() {
+                                                    if let Some(ref app_handle) = *app_handle_guard {
+                                                        let _ = app_handle.emit("session-sync-failed", session_id.clone());
+                                                    }
+                                                }
+                                            }
                                         }
 
                                         log_error(
@@ -533,11 +688,14 @@ impl UploadQueue {
     }
 
     pub fn get_status(&self) -> UploadStatus {
-        let pending = if let Ok(queue) = self.queue.lock() {
-            queue.len()
-        } else {
-            0
-        };
+        use crate::database::{get_upload_stats, get_failed_sessions};
+
+        // Get real-time stats from database instead of in-memory queue
+        let db_stats = get_upload_stats().unwrap_or(crate::database::UploadStats {
+            pending: 0,
+            synced: 0,
+            total: 0,
+        });
 
         let processing = if let Ok(processing) = self.processing.lock() {
             *processing
@@ -545,21 +703,16 @@ impl UploadQueue {
             0
         };
 
-        let failed = if let Ok(failed) = self.failed_items.lock() {
-            failed.len()
-        } else {
-            0
-        };
+        // Get failed count from database
+        let failed = get_failed_sessions()
+            .map(|sessions| sessions.len())
+            .unwrap_or(0);
 
-        // Get recent uploads (last 10)
-        let recent_uploads = if let Ok(failed) = self.failed_items.lock() {
-            failed.iter().rev().take(10).cloned().collect()
-        } else {
-            Vec::new()
-        };
+        // Get recent uploads (last 10) - for now, empty since we're not tracking this
+        let recent_uploads = Vec::new();
 
         UploadStatus {
-            pending,
+            pending: db_stats.pending,  // Real-time from database
             processing,
             failed,
             recent_uploads,
@@ -615,17 +768,91 @@ impl UploadQueue {
     ) -> Result<(), String> {
         let config = config.ok_or("No configuration available")?;
 
-        let api_key = config.api_key.ok_or("No API key configured")?;
-        let server_url = config.server_url.ok_or("No server URL configured")?;
-        let _tenant_id = config.tenant_id.ok_or("No tenant ID configured")?;
+        // Check provider sync mode before uploading
+        use crate::config::load_provider_config;
+        let provider_config = load_provider_config(&item.provider)
+            .map_err(|e| format!("Failed to load provider config: {}", e))?;
 
-        // Get content - either from memory or from file
+        // Only upload if sync mode is "Transcript and Metrics"
+        if provider_config.sync_mode != "Transcript and Metrics" {
+            return Err(format!(
+                "Sync mode is '{}', skipping upload (need 'Transcript and Metrics')",
+                provider_config.sync_mode
+            ));
+        }
+
+        let api_key = config.api_key.clone().ok_or("No API key configured")?;
+        let server_url = config.server_url.clone().ok_or("No server URL configured")?;
+        let _tenant_id = config.tenant_id.clone().ok_or("No tenant ID configured")?;
+
+        // Extract and upload project metadata if CWD is available
+        let final_project_name = if let Some(ref cwd) = item.cwd {
+            use crate::project_metadata::extract_project_metadata;
+
+            log_info("upload-queue", &format!("📁 Extracting project metadata from CWD: {}", cwd))
+                .unwrap_or_default();
+
+            match extract_project_metadata(cwd) {
+                Ok(metadata) => {
+                    log_info("upload-queue", &format!("✓ Extracted project: {} (type: {}, git: {})",
+                        metadata.project_name,
+                        metadata.detected_project_type,
+                        metadata.git_remote_url.as_deref().unwrap_or("none")
+                    )).unwrap_or_default();
+
+                    // Upload project metadata to server
+                    if let Err(e) = Self::upload_project_metadata_static(&metadata, Some(config)).await {
+                        log_warn("upload-queue", &format!("⚠ Failed to upload project metadata: {} - continuing with session upload", e))
+                            .unwrap_or_default();
+                    } else {
+                        log_info("upload-queue", &format!("✓ Project metadata uploaded: {}", metadata.project_name))
+                            .unwrap_or_default();
+                    }
+
+                    // Use real project name from metadata instead of folder name
+                    metadata.project_name
+                }
+                Err(e) => {
+                    log_warn("upload-queue", &format!("⚠ Could not extract project metadata from {}: {} - using folder name", cwd, e))
+                        .unwrap_or_default();
+                    item.project_name.clone()
+                }
+            }
+        } else {
+            log_debug("upload-queue", "No CWD available for project metadata extraction")
+                .unwrap_or_default();
+            item.project_name.clone()
+        };
+
+        // Get content - handle provider-specific logic
         let encoded_content = if let Some(ref content) = item.content {
             // Use in-memory content (already text, encode as base64)
             use base64::Engine;
             base64::engine::general_purpose::STANDARD.encode(content.as_bytes())
+        } else if item.provider == "opencode" {
+            // OpenCode: Parse and consolidate distributed files into single JSONL
+            use crate::config::load_provider_config;
+            use shellexpand::tilde;
+
+            let provider_config = load_provider_config("opencode")
+                .map_err(|e| format!("Failed to load OpenCode config: {}", e))?;
+
+            let storage_path = PathBuf::from(tilde(&provider_config.home_directory).as_ref()).join("storage");
+            let parser = OpenCodeParser::new(storage_path);
+
+            // Extract session ID from item
+            let session_id = item.session_id.as_ref()
+                .ok_or("OpenCode session missing session_id")?;
+
+            // Parse session to consolidate files
+            let parsed_session = parser.parse_session(session_id)
+                .map_err(|e| format!("Failed to parse OpenCode session: {}", e))?;
+
+            // Use consolidated JSONL content
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD.encode(parsed_session.jsonl_content.as_bytes())
         } else {
-            // Read file content
+            // Claude Code, Codex: Read file content directly
             let file_content = std::fs::read(&item.file_path)
                 .map_err(|e| format!("Failed to read file: {}", e))?;
 
@@ -643,10 +870,10 @@ impl UploadQueue {
                 .to_string()
         });
 
-        // Prepare upload request
+        // Prepare upload request (use final_project_name which may be the real project name from metadata)
         let upload_request = UploadRequest {
             provider: item.provider.clone(),
-            project_name: item.project_name.clone(),
+            project_name: final_project_name,
             session_id,
             file_name: item.file_name.clone(),
             file_path: item.file_path.to_string_lossy().to_string(),
@@ -702,14 +929,52 @@ impl UploadQueue {
     }
 
     pub fn get_all_items(&self) -> QueueItems {
-        let pending = if let Ok(queue) = self.queue.lock() {
-            queue.iter().cloned().collect()
+        use crate::database::{get_unsynced_sessions, get_failed_sessions};
+
+        // Get pending items from database (unsynced sessions)
+        let pending = if let Ok(unsynced_sessions) = get_unsynced_sessions() {
+            unsynced_sessions.into_iter().map(|session| {
+                UploadItem {
+                    id: session.id,
+                    provider: session.provider,
+                    project_name: session.project_name,
+                    file_path: PathBuf::from(&session.file_path),
+                    file_name: session.file_name,
+                    queued_at: Utc::now(), // Use current time as approximation
+                    retry_count: 0,
+                    next_retry_at: None,
+                    last_error: None,
+                    file_hash: None,
+                    file_size: session.file_size as u64,
+                    session_id: Some(session.session_id),
+                    content: None,
+                    cwd: session.cwd,
+                }
+            }).collect()
         } else {
             Vec::new()
         };
 
-        let failed = if let Ok(failed_items) = self.failed_items.lock() {
-            failed_items.clone()
+        // Get failed items from database (sessions with sync_failed_reason)
+        let failed = if let Ok(failed_sessions) = get_failed_sessions() {
+            failed_sessions.into_iter().map(|session| {
+                UploadItem {
+                    id: session.id,
+                    provider: session.provider,
+                    project_name: session.project_name,
+                    file_path: PathBuf::from(&session.file_path),
+                    file_name: session.file_name,
+                    queued_at: Utc::now(), // Use current time as approximation
+                    retry_count: 3, // Max retries exceeded
+                    next_retry_at: None,
+                    last_error: Some(session.sync_failed_reason),
+                    file_hash: None,
+                    file_size: session.file_size as u64,
+                    session_id: Some(session.session_id),
+                    content: None,
+                    cwd: session.cwd,
+                }
+            }).collect()
         } else {
             Vec::new()
         };
@@ -768,6 +1033,7 @@ impl UploadQueue {
     }
 
     /// Check if a project exists on the server (GET request)
+    #[allow(dead_code)]
     pub async fn check_project_exists(
         &self,
         project_name: &str,
@@ -841,6 +1107,7 @@ impl UploadQueue {
     }
 
     /// Upload project metadata to the server
+    #[allow(dead_code)]
     pub async fn upload_project_metadata(
         &self,
         metadata: &ProjectMetadata,

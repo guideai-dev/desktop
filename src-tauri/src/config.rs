@@ -113,6 +113,12 @@ pub struct ProviderConfig {
     pub selected_projects: Vec<String>,
     #[serde(rename = "lastScanned")]
     pub last_scanned: Option<String>,
+    #[serde(rename = "syncMode", default = "default_sync_mode")]
+    pub sync_mode: String, // "Nothing", "Metrics Only", or "Transcript and Metrics"
+}
+
+fn default_sync_mode() -> String {
+    "Nothing".to_string()
 }
 
 impl Default for ProviderConfig {
@@ -123,6 +129,7 @@ impl Default for ProviderConfig {
             project_selection: "ALL".to_string(),
             selected_projects: Vec::new(),
             last_scanned: None,
+            sync_mode: "Nothing".to_string(),
         }
     }
 }

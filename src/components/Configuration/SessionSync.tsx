@@ -3,13 +3,18 @@ import { ArrowPathIcon, CloudArrowUpIcon, ExclamationTriangleIcon } from '@heroi
 import { CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/solid'
 import { formatDistanceToNow } from 'date-fns'
 import { useSessionSync } from '../../hooks/useSessionSync'
+import { useProviderConfig } from '../../hooks/useProviderConfig'
 import { CodingAgent } from '../../types/providers'
+import { useNavigate, useLocation } from 'react-router-dom'
 
 interface SessionSyncProps {
   agent: CodingAgent
 }
 
 function SessionSync({ agent }: SessionSyncProps) {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const { data: config } = useProviderConfig(agent.id)
   const {
     scanSessions,
     syncSessions,
@@ -22,14 +27,28 @@ function SessionSync({ agent }: SessionSyncProps) {
 
   const [showDetails, setShowDetails] = useState(false)
 
+  const isSyncEnabled = config?.syncMode === 'Transcript and Metrics'
+
   const handleScan = async () => {
     await scanSessions()
   }
 
   const handleSync = async () => {
+    if (!isSyncEnabled) {
+      // Navigate to provider config with hash to highlight sync mode
+      const currentPath = location.pathname
+      navigate(`${currentPath}#sync-mode`)
+      return
+    }
+
     if (progress && progress.sessions_found.length > 0) {
       await syncSessions()
     }
+  }
+
+  const handleEnableSync = () => {
+    const currentPath = location.pathname
+    navigate(`${currentPath}#sync-mode`)
   }
 
   const handleReset = async () => {
@@ -60,6 +79,26 @@ function SessionSync({ agent }: SessionSyncProps) {
           Upload your historical {agent.name} sessions to GuideAI for analytics and insights.
           Only sessions from selected projects will be included.
         </p>
+
+        {/* Sync Mode Warning */}
+        {!isSyncEnabled && (
+          <div className="alert alert-warning mb-4">
+            <ExclamationTriangleIcon className="w-5 h-5" />
+            <div className="flex-1">
+              <div className="font-medium">Synchronization Disabled</div>
+              <div className="text-sm">
+                Sync mode is currently set to '{config?.syncMode || 'Nothing'}'.
+                Enable 'Transcript and Metrics' to sync sessions.
+              </div>
+            </div>
+            <button
+              onClick={handleEnableSync}
+              className="btn btn-sm btn-primary"
+            >
+              Enable Sync
+            </button>
+          </div>
+        )}
 
         {/* Progress Section */}
         {progress && (
@@ -176,7 +215,7 @@ function SessionSync({ agent }: SessionSyncProps) {
             <button
               className="btn btn-primary"
               onClick={handleScan}
-              disabled={isScanning || isSyncing}
+              disabled={isScanning || isSyncing || !isSyncEnabled}
             >
               {isScanning ? (
                 <>
@@ -195,7 +234,7 @@ function SessionSync({ agent }: SessionSyncProps) {
               <button
                 className="btn btn-success"
                 onClick={handleSync}
-                disabled={isScanning || isSyncing || isUploading}
+                disabled={isScanning || isSyncing || isUploading || !isSyncEnabled}
               >
                 {(isSyncing || isUploading) ? (
                   <>
@@ -205,7 +244,7 @@ function SessionSync({ agent }: SessionSyncProps) {
                 ) : (
                   <>
                     <CloudArrowUpIcon className="w-4 h-4" />
-                    Sync {progress.total_sessions} Sessions
+                    {isSyncEnabled ? `Sync ${progress.total_sessions} Sessions` : 'Sync Disabled'}
                   </>
                 )}
               </button>

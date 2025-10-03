@@ -8,12 +8,14 @@ interface AppLayoutProps {
 
 function AppLayout({ children }: AppLayoutProps) {
   return (
-    <div className="min-h-screen bg-base-100" data-theme="guideai">
+    <div className="min-h-screen bg-base-100">
       <Header />
       <div className="flex h-[calc(100vh-60px)]">
         <SideNav />
-        <main className="flex-1 overflow-auto bg-base-200">
-          {children}
+        <main className="flex-1 overflow-auto main-gradient p-6">
+          <div className="max-w-7xl mx-auto">
+            {children}
+          </div>
         </main>
       </div>
     </div>

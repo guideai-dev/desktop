@@ -5,6 +5,7 @@ mod claude;
 mod claude_watcher;
 mod codex;
 mod codex_watcher;
+pub mod db_helpers;
 mod opencode;
 mod opencode_parser;
 mod opencode_watcher;
@@ -13,6 +14,7 @@ mod session_scanner;
 pub use claude_watcher::{ClaudeWatcher, ClaudeWatcherStatus};
 pub use codex_watcher::{CodexWatcher, CodexWatcherStatus};
 pub use opencode_watcher::{OpenCodeWatcher, OpenCodeWatcherStatus};
+pub use opencode_parser::OpenCodeParser;
 pub use session_scanner::{SessionInfo, scan_all_sessions};
 
 pub fn scan_projects(provider_id: &str, home_directory: &str) -> Result<Vec<ProjectInfo>, String> {

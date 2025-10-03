@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::{Manager, State};
+use tauri::State;
 
 #[tauri::command]
 pub async fn load_config_command() -> Result<GuideAIConfig, String> {
@@ -27,19 +27,6 @@ pub async fn save_config_command(config: GuideAIConfig) -> Result<(), String> {
 #[tauri::command]
 pub async fn clear_config_command() -> Result<(), String> {
     clear_config().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn open_main_window(window: tauri::Window, route: Option<String>) -> Result<(), String> {
-    if let Some(main_window) = window.app_handle().get_window("main") {
-        // If route is provided, emit an event to navigate to that route
-        if let Some(route_path) = route {
-            main_window.emit("navigate", route_path).map_err(|e| e.to_string())?;
-        }
-        main_window.show().map_err(|e| e.to_string())?;
-        main_window.set_focus().map_err(|e| e.to_string())?;
-    }
-    Ok(())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -58,6 +45,7 @@ struct UserInfo {
 #[tauri::command]
 pub async fn login_command(
     server_url: String,
+    _app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     // Start the auth server - this handles automatic port selection and cleanup
@@ -83,7 +71,7 @@ pub async fn login_command(
     // Authentication flow with guaranteed cleanup
     let result = async {
         // Open the browser to the OAuth URL
-        open::that(auth_url).map_err(|e| format!("Failed to open browser: {}", e))?;
+        open::that(&auth_url).map_err(|e| format!("Failed to open browser: {}", e))?;
 
         // Wait for callback with 5-minute timeout (matching CLI behavior)
         let auth_data =
@@ -683,7 +671,33 @@ pub async fn scan_historical_sessions(
         filtered
     };
 
-    if let Err(e) = log_info(&provider_id, &format!("✓ Scan complete: found {} sessions to sync", sessions.len())) {
+    if let Err(e) = log_info(&provider_id, &format!("✓ Scan complete: found {} sessions", sessions.len())) {
+        eprintln!("Logging error: {}", e);
+    }
+
+    // Insert all sessions into the database (just like file watcher does)
+    // The upload queue poller will handle uploading them
+    let mut inserted_count = 0;
+    for session in &sessions {
+        match crate::providers::db_helpers::insert_session_immediately(
+            &provider_id,
+            &session.project_name,
+            &session.session_id,
+            &session.file_path,
+            session.file_size,
+        ) {
+            Ok(_) => {
+                inserted_count += 1;
+            }
+            Err(e) => {
+                if let Err(log_err) = log_warn(&provider_id, &format!("⚠ Failed to insert session {}: {}", session.session_id, e)) {
+                    eprintln!("Logging error: {}", log_err);
+                }
+            }
+        }
+    }
+
+    if let Err(e) = log_info(&provider_id, &format!("✓ Inserted {} sessions into database", inserted_count)) {
         eprintln!("Logging error: {}", e);
     }
 
@@ -706,6 +720,22 @@ pub async fn sync_historical_sessions(
 
     if let Err(e) = log_info(&provider_id, &format!("📤 Starting historical session sync for {}", provider_id)) {
         eprintln!("Logging error: {}", e);
+    }
+
+    // Load provider config to check sync mode
+    let provider_config = load_provider_config(&provider_id)
+        .map_err(|e| format!("Failed to load provider config: {}", e))?;
+
+    // Check if sync mode allows uploads
+    if provider_config.sync_mode != "Transcript and Metrics" {
+        let err_msg = format!(
+            "Sync mode is set to '{}'. Please change it to 'Transcript and Metrics' in provider settings to enable synchronization.",
+            provider_config.sync_mode
+        );
+        if let Err(e) = log_warn(&provider_id, &format!("⚠ {}", err_msg)) {
+            eprintln!("Logging error: {}", e);
+        }
+        return Err(err_msg);
     }
 
     // Update upload queue with current config
@@ -847,6 +877,100 @@ pub async fn reset_session_sync_progress(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn execute_sql(
+    sql: String,
+    params: Vec<serde_json::Value>,
+) -> Result<Vec<serde_json::Value>, String> {
+    crate::database::execute_sql_query(&sql, params)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn clear_all_sessions() -> Result<String, String> {
+    use crate::logging::log_info;
+
+    // Get counts before deleting
+    let metrics_count = crate::database::execute_sql_query(
+        "SELECT COUNT(*) as count FROM session_metrics",
+        vec![]
+    ).map_err(|e| e.to_string())?;
+
+    let sessions_count = crate::database::execute_sql_query(
+        "SELECT COUNT(*) as count FROM agent_sessions",
+        vec![]
+    ).map_err(|e| e.to_string())?;
+
+    let metrics_num = metrics_count.get(0)
+        .and_then(|r| r.get("count"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+
+    let sessions_num = sessions_count.get(0)
+        .and_then(|r| r.get("count"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+
+    // Clear both tables
+    crate::database::execute_sql_query(
+        "DELETE FROM session_metrics",
+        vec![]
+    ).map_err(|e| e.to_string())?;
+
+    crate::database::execute_sql_query(
+        "DELETE FROM agent_sessions",
+        vec![]
+    ).map_err(|e| e.to_string())?;
+
+    let message = format!(
+        "Cleared {} session metrics and {} sessions from database",
+        metrics_num,
+        sessions_num
+    );
+
+    let _ = log_info("system", &message);
+    println!("{}", message);
+
+    Ok(message)
+}
+
+#[tauri::command]
+pub async fn get_session_content(
+    provider: String,
+    file_path: String,
+    session_id: String,
+) -> Result<String, String> {
+    use std::path::PathBuf;
+    use crate::config::load_provider_config;
+    use crate::providers::OpenCodeParser;
+    use shellexpand::tilde;
+
+    let path = PathBuf::from(&file_path);
+
+    match provider.as_str() {
+        "opencode" => {
+            // OpenCode: Parse and consolidate distributed files into single JSONL
+            let provider_config = load_provider_config("opencode")
+                .map_err(|e| format!("Failed to load OpenCode config: {}", e))?;
+
+            let storage_path = PathBuf::from(tilde(&provider_config.home_directory).as_ref()).join("storage");
+            let parser = OpenCodeParser::new(storage_path);
+
+            // Parse session to consolidate files
+            let parsed_session = parser.parse_session(&session_id)
+                .map_err(|e| format!("Failed to parse OpenCode session: {}", e))?;
+
+            // Return consolidated JSONL content
+            Ok(parsed_session.jsonl_content)
+        }
+        _ => {
+            // Claude Code, Codex: Read file content directly
+            std::fs::read_to_string(&path)
+                .map_err(|e| format!("Failed to read file: {}", e))
+        }
+    }
+}
+
 // Autostart function for watchers
 pub fn start_enabled_watchers(app_state: &AppState) {
     // Load and set the configuration on upload queue first
@@ -955,4 +1079,83 @@ pub fn start_enabled_watchers(app_state: &AppState) {
             }
         }
     }
+}
+
+/// Get all projects with session counts
+#[tauri::command]
+pub async fn get_all_projects() -> Result<Vec<serde_json::Value>, String> {
+    use crate::database::get_all_projects;
+
+    let projects = get_all_projects()
+        .map_err(|e| format!("Failed to get projects: {}", e))?;
+
+    // Convert to JSON
+    let projects_json: Vec<serde_json::Value> = projects.iter().map(|p| {
+        serde_json::json!({
+            "id": p.id,
+            "name": p.name,
+            "githubRepo": p.github_repo,
+            "cwd": p.cwd,
+            "type": p.project_type,
+            "createdAt": p.created_at,
+            "updatedAt": p.updated_at,
+            "sessionCount": p.session_count,
+        })
+    }).collect();
+
+    Ok(projects_json)
+}
+
+/// Get a single project by ID
+#[tauri::command]
+pub async fn get_project_by_id(project_id: String) -> Result<Option<serde_json::Value>, String> {
+    use crate::database::get_project_by_id;
+
+    let project = get_project_by_id(&project_id)
+        .map_err(|e| format!("Failed to get project: {}", e))?;
+
+    Ok(project.map(|p| {
+        serde_json::json!({
+            "id": p.id,
+            "name": p.name,
+            "githubRepo": p.github_repo,
+            "cwd": p.cwd,
+            "type": p.project_type,
+            "createdAt": p.created_at,
+            "updatedAt": p.updated_at,
+            "sessionCount": p.session_count,
+        })
+    }))
+}
+
+/// Open a folder in the OS file manager (Finder on macOS, Explorer on Windows, etc.)
+#[tauri::command]
+pub async fn open_folder_in_os(path: String) -> Result<(), String> {
+    use std::process::Command;
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+
+    Ok(())
 }
