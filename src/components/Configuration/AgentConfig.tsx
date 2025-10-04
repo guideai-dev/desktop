@@ -10,6 +10,11 @@ import {
   useStopClaudeWatcher
 } from '../../hooks/useClaudeWatcher'
 import {
+  useCopilotWatcherStatus,
+  useStartCopilotWatcher,
+  useStopCopilotWatcher
+} from '../../hooks/useCopilotWatcher'
+import {
   useOpenCodeWatcherStatus,
   useStartOpenCodeWatcher,
   useStopOpenCodeWatcher
@@ -44,6 +49,10 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
   const { mutate: startClaudeWatcher, isPending: startingClaudeWatcher } = useStartClaudeWatcher()
   const { mutate: stopClaudeWatcher, isPending: stoppingClaudeWatcher } = useStopClaudeWatcher()
 
+  const { data: copilotWatcherStatus } = useCopilotWatcherStatus()
+  const { mutate: startCopilotWatcher, isPending: startingCopilotWatcher } = useStartCopilotWatcher()
+  const { mutate: stopCopilotWatcher, isPending: stoppingCopilotWatcher } = useStopCopilotWatcher()
+
   const { data: opencodeWatcherStatus } = useOpenCodeWatcherStatus()
   const { mutate: startOpenCodeWatcher, isPending: startingOpenCodeWatcher } = useStartOpenCodeWatcher()
   const { mutate: stopOpenCodeWatcher, isPending: stoppingOpenCodeWatcher } = useStopOpenCodeWatcher()
@@ -54,18 +63,23 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
 
   // Get the appropriate status and functions for the current provider
   const watcherStatus = agent.id === 'claude-code' ? claudeWatcherStatus :
+                        agent.id === 'github-copilot' ? copilotWatcherStatus :
                         agent.id === 'opencode' ? opencodeWatcherStatus :
                         agent.id === 'codex' ? codexWatcherStatus : undefined
   const startWatcher = agent.id === 'claude-code' ? startClaudeWatcher :
+                       agent.id === 'github-copilot' ? startCopilotWatcher :
                        agent.id === 'opencode' ? startOpenCodeWatcher :
                        agent.id === 'codex' ? startCodexWatcher : undefined
   const stopWatcher = agent.id === 'claude-code' ? stopClaudeWatcher :
+                      agent.id === 'github-copilot' ? stopCopilotWatcher :
                       agent.id === 'opencode' ? stopOpenCodeWatcher :
                       agent.id === 'codex' ? stopCodexWatcher : undefined
   const startingWatcher = agent.id === 'claude-code' ? startingClaudeWatcher :
+                          agent.id === 'github-copilot' ? startingCopilotWatcher :
                           agent.id === 'opencode' ? startingOpenCodeWatcher :
                           agent.id === 'codex' ? startingCodexWatcher : false
   const stoppingWatcher = agent.id === 'claude-code' ? stoppingClaudeWatcher :
+                          agent.id === 'github-copilot' ? stoppingCopilotWatcher :
                           agent.id === 'opencode' ? stoppingOpenCodeWatcher :
                           agent.id === 'codex' ? stoppingCodexWatcher : false
 

@@ -3,7 +3,7 @@ import { useParams, Navigate, useSearchParams } from 'react-router-dom'
 import { CODING_AGENTS } from '../types/providers'
 import AgentConfig from '../components/Configuration/AgentConfig'
 import LogViewer from '../components/LogViewer'
-import { DocumentTextIcon, ChevronLeftIcon } from '@heroicons/react/24/outline'
+import { DocumentTextIcon } from '@heroicons/react/24/outline'
 
 function ProviderPage() {
   const { providerId } = useParams<{ providerId: string }>()

@@ -29,54 +29,151 @@ interface SessionWithMetrics extends AgentSession {
   }
 }
 
-async function fetchSessions(provider?: string): Promise<SessionWithMetrics[]> {
-  // Build query based on provider filter
-  const query = provider
-        ? `
-          SELECT
-            s.*,
-            s.project_id,
-            m.response_latency_ms,
-            m.task_completion_time_ms,
-            m.read_write_ratio,
-            m.input_clarity_score,
-            m.task_success_rate,
-            m.iteration_count,
-            m.process_quality_score,
-            m.used_plan_mode,
-            m.used_todo_tracking,
-            m.interruption_rate,
-            m.session_length_minutes,
-            m.error_count,
-            m.fatal_errors
-          FROM agent_sessions s
-          LEFT JOIN session_metrics m ON s.session_id = m.session_id
-          WHERE s.provider = ?
-          ORDER BY s.session_start_time DESC NULLS LAST
-        `
-        : `
-          SELECT
-            s.*,
-            s.project_id,
-            m.response_latency_ms,
-            m.task_completion_time_ms,
-            m.read_write_ratio,
-            m.input_clarity_score,
-            m.task_success_rate,
-            m.iteration_count,
-            m.process_quality_score,
-            m.used_plan_mode,
-            m.used_todo_tracking,
-            m.interruption_rate,
-            m.session_length_minutes,
-            m.error_count,
-            m.fatal_errors
-          FROM agent_sessions s
-          LEFT JOIN session_metrics m ON s.session_id = m.session_id
-          ORDER BY s.session_start_time DESC NULLS LAST
-        `
+export type DateFilterOption = 'all' | 'last24hrs' | 'today' | 'yesterday' | 'this-week' | 'last-week' | 'range'
 
-  const params = provider ? [provider] : []
+export interface DateRange {
+  from: string
+  to: string
+}
+
+export interface DateFilterValue {
+  option: DateFilterOption
+  range?: DateRange
+}
+
+interface SessionFilters {
+  provider?: string
+  projectId?: string
+  dateFilter?: DateFilterValue
+}
+
+function buildDateWhereClause(dateFilter: DateFilterValue): { clause: string; params: any[] } {
+  if (dateFilter.option === 'all') {
+    return { clause: '', params: [] }
+  }
+
+  const now = new Date()
+
+  switch (dateFilter.option) {
+    case 'last24hrs': {
+      const twentyFourHoursAgo = now.getTime() - 24 * 60 * 60 * 1000
+      return {
+        clause: 'AND (s.session_end_time >= ? OR (s.session_end_time IS NULL AND s.session_start_time >= ?))',
+        params: [twentyFourHoursAgo, twentyFourHoursAgo]
+      }
+    }
+    case 'today': {
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+      return {
+        clause: 'AND (s.session_end_time >= ? OR (s.session_end_time IS NULL AND s.session_start_time >= ?))',
+        params: [startOfToday, startOfToday]
+      }
+    }
+    case 'yesterday': {
+      const startOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime()
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+      return {
+        clause: 'AND ((s.session_end_time >= ? AND s.session_end_time < ?) OR (s.session_end_time IS NULL AND s.session_start_time >= ? AND s.session_start_time < ?))',
+        params: [startOfYesterday, startOfToday, startOfYesterday, startOfToday]
+      }
+    }
+    case 'this-week': {
+      const startOfWeek = new Date(now)
+      startOfWeek.setDate(now.getDate() - now.getDay())
+      startOfWeek.setHours(0, 0, 0, 0)
+      const startOfWeekMs = startOfWeek.getTime()
+      return {
+        clause: 'AND (s.session_end_time >= ? OR (s.session_end_time IS NULL AND s.session_start_time >= ?))',
+        params: [startOfWeekMs, startOfWeekMs]
+      }
+    }
+    case 'last-week': {
+      const startOfLastWeek = new Date(now)
+      startOfLastWeek.setDate(now.getDate() - now.getDay() - 7)
+      startOfLastWeek.setHours(0, 0, 0, 0)
+      const startOfThisWeek = new Date(now)
+      startOfThisWeek.setDate(now.getDate() - now.getDay())
+      startOfThisWeek.setHours(0, 0, 0, 0)
+      const startOfLastWeekMs = startOfLastWeek.getTime()
+      const startOfThisWeekMs = startOfThisWeek.getTime()
+      return {
+        clause: 'AND ((s.session_end_time >= ? AND s.session_end_time < ?) OR (s.session_end_time IS NULL AND s.session_start_time >= ? AND s.session_start_time < ?))',
+        params: [startOfLastWeekMs, startOfThisWeekMs, startOfLastWeekMs, startOfThisWeekMs]
+      }
+    }
+    case 'range': {
+      if (!dateFilter.range) {
+        return { clause: '', params: [] }
+      }
+      const fromDate = new Date(dateFilter.range.from)
+      fromDate.setHours(0, 0, 0, 0)
+      const toDate = new Date(dateFilter.range.to)
+      toDate.setHours(23, 59, 59, 999)
+      const fromMs = fromDate.getTime()
+      const toMs = toDate.getTime()
+      return {
+        clause: 'AND ((s.session_end_time >= ? AND s.session_end_time <= ?) OR (s.session_end_time IS NULL AND s.session_start_time >= ? AND s.session_start_time <= ?))',
+        params: [fromMs, toMs, fromMs, toMs]
+      }
+    }
+    default:
+      return { clause: '', params: [] }
+  }
+}
+
+async function fetchSessions(filters: SessionFilters = {}): Promise<SessionWithMetrics[]> {
+  const { provider, projectId, dateFilter } = filters
+  
+  // Build WHERE clause conditions
+  const whereConditions: string[] = []
+  const params: any[] = []
+  
+  if (provider) {
+    whereConditions.push('s.provider = ?')
+    params.push(provider)
+  }
+  
+  if (projectId) {
+    whereConditions.push('s.project_id = ?')
+    params.push(projectId)
+  }
+  
+  // Add date filter
+  if (dateFilter) {
+    const dateWhere = buildDateWhereClause(dateFilter)
+    if (dateWhere.clause) {
+      whereConditions.push(dateWhere.clause.replace('AND ', ''))
+      params.push(...dateWhere.params)
+    }
+  }
+  
+  const whereClause = whereConditions.length > 0 
+    ? `WHERE ${whereConditions.join(' AND ')}`
+    : ''
+  
+  // Build query
+  const query = `
+    SELECT
+      s.*,
+      s.project_id,
+      m.response_latency_ms,
+      m.task_completion_time_ms,
+      m.read_write_ratio,
+      m.input_clarity_score,
+      m.task_success_rate,
+      m.iteration_count,
+      m.process_quality_score,
+      m.used_plan_mode,
+      m.used_todo_tracking,
+      m.interruption_rate,
+      m.session_length_minutes,
+      m.error_count,
+      m.fatal_errors
+    FROM agent_sessions s
+    LEFT JOIN session_metrics m ON s.session_id = m.session_id
+    ${whereClause}
+    ORDER BY s.session_end_time DESC NULLS LAST
+  `
 
   const result: any[] = await invoke('execute_sql', {
     sql: query,
@@ -141,10 +238,10 @@ async function fetchSessions(provider?: string): Promise<SessionWithMetrics[]> {
   return sessionsWithMetrics
 }
 
-export function useLocalSessions(provider?: string) {
+export function useLocalSessions(filters?: SessionFilters) {
   const { data: sessions = [], isLoading: loading, error, refetch } = useQuery({
-    queryKey: ['local-sessions', provider],
-    queryFn: () => fetchSessions(provider),
+    queryKey: ['local-sessions', filters?.provider, filters?.projectId, filters?.dateFilter],
+    queryFn: () => fetchSessions(filters),
   })
 
   return {

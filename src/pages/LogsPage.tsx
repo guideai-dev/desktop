@@ -32,20 +32,6 @@ function LogsPage() {
     return level.toUpperCase().padEnd(5)
   }
 
-  const getLogSourceName = (provider: string) => {
-    const names: Record<string, string> = {
-      'app': 'Application',
-      'system': 'System',
-      'database': 'Database',
-      'upload-queue': 'Upload Queue',
-      'db_helpers': 'Database Helpers',
-      'claude-code': 'Claude Code',
-      'opencode': 'OpenCode',
-      'codex': 'Codex'
-    }
-    return names[provider] || provider
-  }
-
   return (
     <div className="-mx-6 -mt-6 h-[calc(100vh-60px)] flex flex-col overflow-hidden max-w-none">
       {/* Header with Controls */}

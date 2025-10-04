@@ -5,7 +5,7 @@ use crate::config::{
     ProviderConfig,
 };
 use crate::logging::{read_provider_logs, LogEntry};
-use crate::providers::{ClaudeWatcher, ClaudeWatcherStatus, CodexWatcher, CodexWatcherStatus, OpenCodeWatcher, OpenCodeWatcherStatus, SessionInfo, scan_all_sessions};
+use crate::providers::{ClaudeWatcher, ClaudeWatcherStatus, CodexWatcher, CodexWatcherStatus, CopilotWatcher, CopilotWatcherStatus, OpenCodeWatcher, OpenCodeWatcherStatus, SessionInfo, scan_all_sessions};
 use crate::upload_queue::{UploadQueue, UploadStatus, QueueItems};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -293,6 +293,7 @@ pub async fn get_activity_logs_command(
 #[derive(Debug)]
 pub enum Watcher {
     Claude(ClaudeWatcher),
+    Copilot(CopilotWatcher),
     OpenCode(OpenCodeWatcher),
     Codex(CodexWatcher),
 }
@@ -301,6 +302,7 @@ impl Watcher {
     pub fn stop(&self) {
         match self {
             Watcher::Claude(watcher) => watcher.stop(),
+            Watcher::Copilot(watcher) => watcher.stop(),
             Watcher::OpenCode(watcher) => watcher.stop(),
             Watcher::Codex(watcher) => watcher.stop(),
         }
@@ -470,6 +472,57 @@ pub async fn get_codex_watcher_status(state: State<'_, AppState>) -> Result<Code
             Ok(watcher.get_status())
         } else {
             Ok(CodexWatcherStatus {
+                is_running: false,
+                pending_uploads: 0,
+                processing_uploads: 0,
+                failed_uploads: 0,
+            })
+        }
+    } else {
+        Err("Failed to access watcher state".to_string())
+    }
+}
+
+// Copilot watcher commands
+#[tauri::command]
+pub async fn start_copilot_watcher(
+    state: State<'_, AppState>,
+    projects: Vec<String>,
+) -> Result<(), String> {
+    // Update upload queue with current config
+    if let Ok(config) = load_config() {
+        state.upload_queue.set_config(config);
+    }
+
+    // Create new watcher
+    let watcher = CopilotWatcher::new(projects, Arc::clone(&state.upload_queue))
+        .map_err(|e| format!("Failed to create Copilot watcher: {}", e))?;
+
+    // Store watcher in state
+    if let Ok(mut watchers) = state.watchers.lock() {
+        watchers.insert("github-copilot".to_string(), Watcher::Copilot(watcher));
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn stop_copilot_watcher(state: State<'_, AppState>) -> Result<(), String> {
+    if let Ok(mut watchers) = state.watchers.lock() {
+        if let Some(watcher) = watchers.remove("github-copilot") {
+            watcher.stop();
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_copilot_watcher_status(state: State<'_, AppState>) -> Result<CopilotWatcherStatus, String> {
+    if let Ok(watchers) = state.watchers.lock() {
+        if let Some(Watcher::Copilot(watcher)) = watchers.get("github-copilot") {
+            Ok(watcher.get_status())
+        } else {
+            Ok(CopilotWatcherStatus {
                 is_running: false,
                 pending_uploads: 0,
                 processing_uploads: 0,
@@ -948,6 +1001,11 @@ pub async fn get_session_content(
     let path = PathBuf::from(&file_path);
 
     match provider.as_str() {
+        "github-copilot" => {
+            // Copilot: Read snapshot file directly (now using snapshot-based JSONL files)
+            std::fs::read_to_string(&path)
+                .map_err(|e| format!("Failed to read Copilot snapshot file: {}", e))
+        }
         "opencode" => {
             // OpenCode: Parse and consolidate distributed files into single JSONL
             let provider_config = load_provider_config("opencode")
@@ -1075,6 +1133,39 @@ pub fn start_enabled_watchers(app_state: &AppState) {
                 }
                 Err(e) => {
                     eprintln!("Failed to scan Codex projects: {}", e);
+                }
+            }
+        }
+    }
+
+    // Try to start GitHub Copilot watcher if enabled
+    if let Ok(copilot_config) = load_provider_config("github-copilot") {
+        if copilot_config.enabled {
+            // Scan for projects
+            match crate::providers::scan_projects("github-copilot", &copilot_config.home_directory) {
+                Ok(projects) => {
+                    let projects_to_watch = if copilot_config.project_selection == "ALL" {
+                        projects.iter().map(|p| p.name.clone()).collect()
+                    } else {
+                        copilot_config.selected_projects
+                    };
+
+                    if !projects_to_watch.is_empty() {
+                        match CopilotWatcher::new(projects_to_watch, Arc::clone(&app_state.upload_queue)) {
+                            Ok(watcher) => {
+                                if let Ok(mut watchers) = app_state.watchers.lock() {
+                                    watchers.insert("github-copilot".to_string(), Watcher::Copilot(watcher));
+                                    println!("GitHub Copilot watcher started automatically");
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to start GitHub Copilot watcher: {}", e);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to scan GitHub Copilot projects: {}", e);
                 }
             }
         }

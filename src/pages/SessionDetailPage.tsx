@@ -6,7 +6,6 @@ import { listen } from '@tauri-apps/api/event'
 import { open } from '@tauri-apps/plugin-shell'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
-import ProviderIcon from '../components/icons/ProviderIcon'
 import { useLocalSessionContent } from '../hooks/useLocalSessionContent'
 import { useLocalSessionMetrics } from '../hooks/useLocalSessionMetrics'
 import { useAiProcessing } from '../hooks/useAiProcessing'
@@ -19,6 +18,7 @@ import {
   isTimelineGroup,
   MetricsOverview,
 } from '@guideai-dev/session-processing/ui'
+import ProviderIcon from '../components/icons/ProviderIcon'
 import {
   ClockIcon,
   ChartBarIcon,

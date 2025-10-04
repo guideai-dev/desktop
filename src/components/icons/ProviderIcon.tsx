@@ -1,4 +1,5 @@
 import claudeCodeSvg from '../../assets/icons/claude-code.svg'
+import githubCopilotSvg from '../../assets/icons/github-copilot.svg'
 import opencodeSvg from '../../assets/icons/opencode.svg'
 import openaiCodexSvg from '../../assets/icons/openai-codex.svg'
 
@@ -8,9 +9,10 @@ interface ProviderIconProps {
   size?: number
 }
 
-function ProviderIcon({ providerId, className = '', size = 24 }: ProviderIconProps) {
+function ProviderIcon({ providerId, className = '', size = 20 }: ProviderIconProps) {
   const iconMap: Record<string, string> = {
     'claude-code': claudeCodeSvg,
+    'github-copilot': githubCopilotSvg,
     'opencode': opencodeSvg,
     'codex': openaiCodexSvg,
   }

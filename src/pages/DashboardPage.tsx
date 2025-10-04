@@ -6,6 +6,7 @@ import ProviderIcon from '../components/icons/ProviderIcon'
 import { useSessionActivity } from '../hooks/useSessionActivity'
 import { useSessionActivityStore } from '../stores/sessionActivityStore'
 import { useClaudeWatcherStatus } from '../hooks/useClaudeWatcher'
+import { useCopilotWatcherStatus } from '../hooks/useCopilotWatcher'
 import { useOpenCodeWatcherStatus } from '../hooks/useOpenCodeWatcher'
 import { useCodexWatcherStatus } from '../hooks/useCodexWatcher'
 
@@ -16,6 +17,7 @@ function DashboardPage() {
 
   // Get watcher statuses
   const { data: claudeStatus } = useClaudeWatcherStatus()
+  const { data: copilotStatus } = useCopilotWatcherStatus()
   const { data: opencodeStatus } = useOpenCodeWatcherStatus()
   const { data: codexStatus } = useCodexWatcherStatus()
 
@@ -47,7 +49,9 @@ function DashboardPage() {
   // Get active providers
   const activeProviders = [
     { id: 'claude-code', name: 'Claude Code', isRunning: claudeStatus?.is_running },
+    { id: 'github-copilot', name: 'GitHub Copilot', isRunning: copilotStatus?.is_running },
     { id: 'opencode', name: 'OpenCode', isRunning: opencodeStatus?.is_running },
+    { id: 'codex', name: 'Codex', isRunning: codexStatus?.is_running },
     { id: 'codex', name: 'Codex', isRunning: codexStatus?.is_running },
   ].filter(p => p.isRunning)
 
@@ -173,10 +177,7 @@ function DashboardPage() {
                 }}
                 isActive={isSessionActive(session.sessionId as string)}
                 onViewSession={() => handleViewSession(session.sessionId as string)}
-                ProviderIcon={({ providerId, size }) => (
-                  <ProviderIcon providerId={providerId} size={size} />
-                )}
-                LinkComponent={({ to, children }) => <Link to={to}>{children}</Link>}
+                ProviderIcon={ProviderIcon}
               />
             ))}
           </div>

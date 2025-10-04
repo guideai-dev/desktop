@@ -5,6 +5,10 @@ mod claude;
 mod claude_watcher;
 mod codex;
 mod codex_watcher;
+mod copilot;
+mod copilot_parser;
+mod copilot_snapshot;
+mod copilot_watcher;
 pub mod db_helpers;
 mod opencode;
 mod opencode_parser;
@@ -13,6 +17,7 @@ mod session_scanner;
 
 pub use claude_watcher::{ClaudeWatcher, ClaudeWatcherStatus};
 pub use codex_watcher::{CodexWatcher, CodexWatcherStatus};
+pub use copilot_watcher::{CopilotWatcher, CopilotWatcherStatus};
 pub use opencode_watcher::{OpenCodeWatcher, OpenCodeWatcherStatus};
 pub use opencode_parser::OpenCodeParser;
 pub use session_scanner::{SessionInfo, scan_all_sessions};
@@ -20,6 +25,7 @@ pub use session_scanner::{SessionInfo, scan_all_sessions};
 pub fn scan_projects(provider_id: &str, home_directory: &str) -> Result<Vec<ProjectInfo>, String> {
     match provider_id {
         "claude-code" => claude::scan_projects(home_directory),
+        "github-copilot" => copilot::scan_projects(home_directory),
         "opencode" => opencode::scan_projects(home_directory),
         "codex" => codex::scan_projects(home_directory),
         other => Err(format!("Unsupported provider: {}", other)),

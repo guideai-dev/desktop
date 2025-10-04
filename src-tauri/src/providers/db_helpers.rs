@@ -22,7 +22,7 @@ pub fn insert_session_immediately(
     // Check if already exists
     if session_exists(session_id, file_name)? {
         // Update existing session with new file size and timestamp
-        let (start_time, end_time, _duration) = match extract_session_timing(file_path) {
+        let (start_time, end_time, _duration) = match extract_session_timing(provider_id, file_path) {
             Ok(timing) => timing,
             Err(e) => {
                 let _ = log_warn(
@@ -75,7 +75,7 @@ pub fn insert_session_immediately(
     }
 
     // Parse session timing from file
-    let (start_time, end_time, duration) = match extract_session_timing(file_path) {
+    let (start_time, end_time, duration) = match extract_session_timing(provider_id, file_path) {
         Ok(timing) => timing,
         Err(e) => {
             let _ = log_warn(
@@ -163,11 +163,15 @@ pub fn insert_session_immediately(
 }
 
 /// Extract session timing from JSONL file (works for all providers)
+/// Extract timing information from session file (start time, end time, duration)
+/// All providers now use JSONL format (including github-copilot snapshots)
 fn extract_session_timing(
+    provider_id: &str,
     file_path: &PathBuf,
 ) -> Result<(Option<DateTime<Utc>>, Option<DateTime<Utc>>, Option<i64>), Box<dyn std::error::Error + Send + Sync>> {
     use std::fs;
 
+    // Read JSONL and extract timestamps
     let content = fs::read_to_string(file_path).map_err(|e| {
         let _ = log_warn("db_helpers", &format!("⚠ Failed to read file for timing extraction: {}", e));
         e
@@ -241,6 +245,18 @@ fn extract_cwd_from_file(provider_id: &str, file_path: &PathBuf) -> Option<Strin
                     if let Some(cwd) = entry.get("payload")
                         .and_then(|p| p.get("cwd"))
                         .and_then(|v| v.as_str()) {
+                        return Some(cwd.to_string());
+                    }
+                }
+            }
+        }
+        "github-copilot" => {
+            // GitHub Copilot: Look for direct cwd field added by our snapshot manager
+            // Since we add cwd to every timeline entry, we only need to check the first 50 lines
+            for line in lines.iter().take(50) {
+                if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
+                    // Check for direct cwd field
+                    if let Some(cwd) = entry.get("cwd").and_then(|v| v.as_str()) {
                         return Some(cwd.to_string());
                     }
                 }

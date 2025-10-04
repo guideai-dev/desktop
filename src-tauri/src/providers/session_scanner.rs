@@ -51,6 +51,7 @@ pub fn scan_all_sessions(provider_id: &str, home_directory: &str) -> Result<Vec<
 
     match provider_id {
         "claude-code" => scan_claude_sessions(base_path),
+        "github-copilot" => scan_copilot_sessions(base_path),
         "opencode" => scan_opencode_sessions(base_path),
         "codex" => scan_codex_sessions(base_path),
         _ => Err(format!("Unsupported provider: {}", provider_id)),
@@ -339,6 +340,50 @@ fn scan_codex_sessions(base_path: &Path) -> Result<Vec<SessionInfo>, String> {
     Ok(sessions)
 }
 
+fn scan_copilot_sessions(base_path: &Path) -> Result<Vec<SessionInfo>, String> {
+    // Copilot uses ~/.copilot/history-session-state/session_{uuid}_{timestamp}.json
+    let session_dir = base_path.join("history-session-state");
+    if !session_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut sessions = Vec::new();
+    let entries = fs::read_dir(&session_dir)
+        .map_err(|e| format!("Failed to read Copilot session directory: {}", e))?;
+
+    for entry in entries.flatten() {
+        let file_path = entry.path();
+        
+        // Only process session files (start with "session_" and end with ".json")
+        if let Some(file_name) = file_path.file_name().and_then(|n| n.to_str()) {
+            if file_name.starts_with("session_") && file_path.extension().and_then(|ext| ext.to_str()) == Some("json") {
+                match parse_copilot_session(&file_path) {
+                    Ok(session_info) => {
+                        sessions.push(session_info);
+                    }
+                    Err(e) => {
+                        if let Err(log_err) = log_warn(
+                            "github-copilot",
+                            &format!("Failed to parse Copilot session {}: {}", file_path.display(), e),
+                        ) {
+                            eprintln!("Logging error: {}", log_err);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if let Err(e) = log_info(
+        "github-copilot",
+        &format!("📊 Found {} GitHub Copilot sessions", sessions.len()),
+    ) {
+        eprintln!("Logging error: {}", e);
+    }
+
+    Ok(sessions)
+}
+
 fn parse_codex_session(file_path: &Path) -> Result<SessionInfo, String> {
     let content = fs::read_to_string(file_path)
         .map_err(|e| format!("Failed to read file: {}", e))?;
@@ -405,6 +450,80 @@ fn parse_codex_session(file_path: &Path) -> Result<SessionInfo, String> {
         file_size,
         content: None, // Codex sessions use files directly
         cwd: Some(cwd), // Codex sessions have CWD from parsing
+    })
+}
+
+#[derive(Debug, Deserialize)]
+struct CopilotSessionFile {
+    #[serde(rename = "sessionId")]
+    session_id: String,
+    #[serde(rename = "startTime")]
+    start_time: String,
+    #[serde(rename = "chatMessages")]
+    chat_messages: Vec<serde_json::Value>,
+}
+
+fn parse_copilot_session(file_path: &Path) -> Result<SessionInfo, String> {
+    let content = fs::read_to_string(file_path)
+        .map_err(|e| format!("Failed to read file: {}", e))?;
+
+    // Parse the Copilot session JSON
+    let session: CopilotSessionFile = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse Copilot session JSON: {}", e))?;
+
+    // Parse start time
+    let session_start_time = DateTime::parse_from_rfc3339(&session.start_time)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc));
+
+    // Estimate end time from last message (Copilot doesn't store explicit end time)
+    let session_end_time = session_start_time.map(|start| {
+        // Add number of messages as a rough estimate (1 minute per message)
+        start + chrono::Duration::minutes(session.chat_messages.len() as i64)
+    });
+
+    // Calculate duration
+    let duration_ms = match (session_start_time, session_end_time) {
+        (Some(start), Some(end)) => Some((end - start).num_milliseconds()),
+        _ => None,
+    };
+
+    // Get file size
+    let file_size = fs::metadata(file_path)
+        .map(|m| m.len())
+        .unwrap_or(0);
+
+    let file_name = file_path.file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("unknown.json")
+        .to_string();
+
+    // Extract session ID from filename if needed (format: session_{uuid}_{timestamp}.json)
+    let session_id = file_path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .and_then(|name| {
+            // Remove "session_" prefix and everything after the last underscore (timestamp)
+            if let Some(stripped) = name.strip_prefix("session_") {
+                if let Some(last_underscore) = stripped.rfind('_') {
+                    return Some(stripped[..last_underscore].to_string());
+                }
+            }
+            None
+        })
+        .unwrap_or_else(|| session.session_id.clone());
+
+    Ok(SessionInfo {
+        provider: "github-copilot".to_string(),
+        project_name: "copilot-sessions".to_string(), // Copilot doesn't have projects
+        session_id,
+        file_path: file_path.to_path_buf(),
+        file_name,
+        session_start_time,
+        session_end_time,
+        duration_ms,
+        file_size,
+        content: None, // Copilot sessions use files directly
+        cwd: None, // Copilot sessions don't have explicit CWD
     })
 }
 

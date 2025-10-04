@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { flushSync } from 'react-dom'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { SessionCard, DateFilter } from '@guideai-dev/session-processing/ui'
+import ProviderIcon from '../components/icons/ProviderIcon'
 import { useLocalSessions, useInvalidateSessions } from '../hooks/useLocalSessions'
 import { useAiProcessing } from '../hooks/useAiProcessing'
 import { useSessionProcessing } from '../hooks/useSessionProcessing'
@@ -10,7 +11,6 @@ import { useToast } from '../hooks/useToast'
 import type { DateFilterValue } from '@guideai-dev/session-processing/ui'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import ProviderIcon from '../components/icons/ProviderIcon'
 import { useSessionActivity } from '../hooks/useSessionActivity'
 import { useSessionActivityStore } from '../stores/sessionActivityStore'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -50,9 +50,11 @@ export default function SessionsPage() {
   const clearAllActiveSessions = useSessionActivityStore(state => state.clearAllActiveSessions)
   const setTrackingEnabled = useSessionActivityStore(state => state.setTrackingEnabled)
 
-  const { sessions, loading, error, refresh } = useLocalSessions(
-    providerFilter === 'all' ? undefined : providerFilter
-  )
+  const { sessions, loading, error, refresh } = useLocalSessions({
+    provider: providerFilter === 'all' ? undefined : providerFilter,
+    projectId: projectFilter === 'all' ? undefined : projectFilter,
+    dateFilter: dateFilter,
+  })
   const invalidateSessions = useInvalidateSessions()
   const { projects } = useLocalProjects()
 
@@ -64,14 +66,6 @@ export default function SessionsPage() {
     }
   }, [searchParams])
 
-  // Filter sessions by project if selected
-  const filteredSessions = projectFilter === 'all'
-    ? sessions
-    : sessions.filter(session => {
-        const sessionData = session as any
-        return sessionData.projectId === projectFilter
-      })
-
   // Reset display count when filters change
   useEffect(() => {
     setDisplayCount(SESSIONS_PER_PAGE)
@@ -79,10 +73,10 @@ export default function SessionsPage() {
 
   // Infinite scroll observer
   const loadMore = useCallback(() => {
-    if (displayCount < filteredSessions.length) {
-      setDisplayCount(prev => Math.min(prev + SESSIONS_PER_PAGE, filteredSessions.length))
+    if (displayCount < sessions.length) {
+      setDisplayCount(prev => Math.min(prev + SESSIONS_PER_PAGE, sessions.length))
     }
-  }, [displayCount, filteredSessions.length])
+  }, [displayCount, sessions.length])
 
   useEffect(() => {
     if (!loadMoreRef.current) return
@@ -106,7 +100,7 @@ export default function SessionsPage() {
   }, [loadMore])
 
   // Get visible sessions
-  const visibleSessions = filteredSessions.slice(0, displayCount)
+  const visibleSessions = sessions.slice(0, displayCount)
 
   // Listen for sync/update events from backend and invalidate cache
   useEffect(() => {
@@ -374,7 +368,7 @@ export default function SessionsPage() {
     try {
       // Rescan all enabled providers
       console.log('[SessionsPage] Rescanning sessions for all enabled providers...')
-      const providers = ['claude-code', 'opencode', 'codex']
+      const providers = ['claude-code', 'github-copilot', 'opencode', 'codex']
       let totalFound = 0
 
       for (const provider of providers) {
@@ -438,7 +432,7 @@ export default function SessionsPage() {
 
       // Rescan all enabled providers
       console.log('[SessionsPage] Step 2: Rescanning sessions for all enabled providers...')
-      const providers = ['claude-code', 'opencode', 'codex']
+      const providers = ['claude-code', 'github-copilot', 'opencode', 'codex']
       let totalFound = 0
 
       for (const provider of providers) {
@@ -514,8 +508,7 @@ export default function SessionsPage() {
         <div>
           <h1 className="text-2xl font-bold">Sessions</h1>
           <p className="text-sm text-base-content/70 mt-1">
-            {filteredSessions.length} {filteredSessions.length === 1 ? 'session' : 'sessions'} found
-            {projectFilter !== 'all' && ` (${sessions.length} total)`}
+            {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'} found
           </p>
         </div>
         <div className="flex gap-2">
@@ -587,7 +580,49 @@ export default function SessionsPage() {
         </div>
       </div>
 
-      {/* Action Bar and Filters Above Sessions List */}
+      {/* Filters - Always visible */}
+      <div className="flex items-center gap-3 mb-4">
+        {/* Spacer to push filters to the right */}
+        <div className="flex-1"></div>
+
+        {/* Right side: Filters */}
+        <DateFilter value={dateFilter} onChange={setDateFilter} />
+        <select
+          className="select select-bordered select-sm"
+          value={providerFilter}
+          onChange={(e) => setProviderFilter(e.target.value)}
+        >
+          <option value="all">All Providers</option>
+          <option value="claude-code">Claude Code</option>
+          <option value="github-copilot">GitHub Copilot</option>
+          <option value="opencode">OpenCode</option>
+          <option value="codex">Codex</option>
+        </select>
+        <select
+          className="select select-bordered select-sm"
+          value={projectFilter}
+          onChange={(e) => {
+            const value = e.target.value
+            setProjectFilter(value)
+            // Update URL parameter
+            if (value === 'all') {
+              searchParams.delete('project')
+            } else {
+              searchParams.set('project', value)
+            }
+            setSearchParams(searchParams)
+          }}
+        >
+          <option value="all">All Projects</option>
+          {projects.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Action Bar - Only visible when sessions exist */}
       {sessions.length > 0 && (
         <div className="flex items-center gap-3 mb-4">
           {/* Left side: Selection actions */}
@@ -629,41 +664,6 @@ export default function SessionsPage() {
 
           {/* Spacer */}
           <div className="flex-1"></div>
-
-          {/* Right side: Filters */}
-          <DateFilter value={dateFilter} onChange={setDateFilter} />
-          <select
-            className="select select-bordered select-sm"
-            value={providerFilter}
-            onChange={(e) => setProviderFilter(e.target.value)}
-          >
-            <option value="all">All Providers</option>
-            <option value="claude-code">Claude Code</option>
-            <option value="opencode">OpenCode</option>
-            <option value="codex">Codex</option>
-          </select>
-          <select
-            className="select select-bordered select-sm"
-            value={projectFilter}
-            onChange={(e) => {
-              const value = e.target.value
-              setProjectFilter(value)
-              // Update URL parameter
-              if (value === 'all') {
-                searchParams.delete('project')
-              } else {
-                searchParams.set('project', value)
-              }
-              setSearchParams(searchParams)
-            }}
-          >
-            <option value="all">All Projects</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
 
           {/* Action Buttons (in selection mode) */}
           {selectionMode && (
@@ -746,29 +746,26 @@ export default function SessionsPage() {
                   onSyncSession={handleSyncSession}
                   onShowSyncError={handleShowSyncError}
                   isProcessing={processingSessionId === session.sessionId || (bulkProcessing && isSelected)}
-                  ProviderIcon={({ providerId, size }) => (
-                    <ProviderIcon providerId={providerId} size={size} />
-                  )}
-                  LinkComponent={({ to, children }) => <Link to={to}>{children}</Link>}
+                  ProviderIcon={ProviderIcon}
                 />
               )
             })}
           </div>
 
           {/* Load more trigger */}
-          {displayCount < filteredSessions.length && (
+          {displayCount < sessions.length && (
             <div ref={loadMoreRef} className="flex items-center justify-center py-8">
               <span className="loading loading-spinner loading-md" />
               <span className="ml-3 text-sm text-base-content/70">
-                Loading more... ({displayCount} of {filteredSessions.length})
+                Loading more... ({displayCount} of {sessions.length})
               </span>
             </div>
           )}
 
           {/* Show completion message */}
-          {displayCount >= filteredSessions.length && filteredSessions.length > SESSIONS_PER_PAGE && (
+          {displayCount >= sessions.length && sessions.length > SESSIONS_PER_PAGE && (
             <div className="text-center py-4 text-sm text-base-content/70">
-              All {filteredSessions.length} sessions loaded
+              All {sessions.length} sessions loaded
             </div>
           )}
         </>
