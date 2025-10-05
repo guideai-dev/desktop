@@ -39,9 +39,33 @@ export function useUpdater(): UseUpdaterReturn {
     setState(prev => ({ ...prev, isChecking: true, error: null }))
 
     try {
+      // Log the expected endpoint URL for debugging
+      const platform = navigator.platform.toLowerCase()
+      const arch = navigator.userAgent.includes('x64') || navigator.userAgent.includes('x86_64')
+        ? 'x86_64'
+        : navigator.userAgent.includes('aarch64') || navigator.userAgent.includes('arm64')
+        ? 'aarch64'
+        : 'x86_64'
+
+      let target = 'unknown'
+      if (platform.includes('mac') || platform.includes('darwin')) {
+        target = 'darwin-universal'
+      } else if (platform.includes('linux')) {
+        target = `linux-${arch}`
+      } else if (platform.includes('win')) {
+        target = `windows-${arch}`
+      }
+
+      const expectedUrl = `https://install.guideai.dev/desktop/${target}/latest.json`
+      console.log('Checking for updates at:', expectedUrl)
+
       const update = await check()
 
       if (update) {
+        console.log('Update available:', {
+          currentVersion: update.currentVersion,
+          latestVersion: update.version,
+        })
         setState(prev => ({
           ...prev,
           isChecking: false,
@@ -51,6 +75,7 @@ export function useUpdater(): UseUpdaterReturn {
         }))
         setUpdateInstance(update)
       } else {
+        console.log('No update available - app is up to date')
         setState(prev => ({
           ...prev,
           isChecking: false,
@@ -60,6 +85,10 @@ export function useUpdater(): UseUpdaterReturn {
       }
     } catch (error) {
       console.error('Failed to check for updates:', error)
+      console.error('Error details:', {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      })
       setState(prev => ({
         ...prev,
         isChecking: false,
