@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { check, Update } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
+import { getVersion } from '@tauri-apps/api/app'
 
 interface UpdaterState {
   isChecking: boolean
@@ -16,6 +17,7 @@ interface UpdaterState {
 interface UseUpdaterReturn extends UpdaterState {
   checkForUpdates: () => Promise<void>
   downloadAndInstall: () => Promise<void>
+  isUpToDate: boolean
 }
 
 /**
@@ -34,6 +36,16 @@ export function useUpdater(): UseUpdaterReturn {
   })
 
   const [updateInstance, setUpdateInstance] = useState<Update | null>(null)
+  const [isUpToDate, setIsUpToDate] = useState(false)
+
+  // Load current app version on mount
+  useEffect(() => {
+    getVersion().then(version => {
+      setState(prev => ({ ...prev, currentVersion: version }))
+    }).catch(err => {
+      console.error('Failed to get app version:', err)
+    })
+  }, [])
 
   const checkForUpdates = useCallback(async () => {
     setState(prev => ({ ...prev, isChecking: true, error: null }))
@@ -76,12 +88,15 @@ export function useUpdater(): UseUpdaterReturn {
         setUpdateInstance(update)
       } else {
         console.log('No update available - app is up to date')
+        setIsUpToDate(true)
         setState(prev => ({
           ...prev,
           isChecking: false,
           hasUpdate: false,
           error: null,
         }))
+        // Reset isUpToDate after 3 seconds
+        setTimeout(() => setIsUpToDate(false), 3000)
       }
     } catch (error) {
       console.error('Failed to check for updates:', error)
@@ -150,5 +165,6 @@ export function useUpdater(): UseUpdaterReturn {
     ...state,
     checkForUpdates,
     downloadAndInstall,
+    isUpToDate,
   }
 }

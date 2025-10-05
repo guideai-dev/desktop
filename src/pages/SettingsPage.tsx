@@ -20,6 +20,7 @@ function SettingsPage() {
     error,
     checkForUpdates,
     downloadAndInstall,
+    isUpToDate,
   } = useUpdater()
   const [showClaudeKey, setShowClaudeKey] = useState(false)
   const [showGeminiKey, setShowGeminiKey] = useState(false)
@@ -302,6 +303,21 @@ function SettingsPage() {
                   <div>
                     <h3 className="font-bold">Update Error</h3>
                     <div className="text-sm">{error}</div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {isUpToDate && (
+              <>
+                <div className="divider"></div>
+                <div className="alert alert-success">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <h3 className="font-bold">App is Up to Date</h3>
+                    <div className="text-sm">You're running the latest version {currentVersion}</div>
                   </div>
                 </div>
               </>
