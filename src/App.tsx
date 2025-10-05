@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-route
 import { useAuth } from './hooks/useAuth'
 import { useDatabase } from './hooks/useDatabase'
 import { useSessionIngest } from './hooks/useSessionIngest'
+import { useAutoSessionProcessing } from './hooks/useAutoSessionProcessing'
 import AppLayout from './components/Layout/AppLayout'
 import DashboardPage from './pages/DashboardPage'
 import OverviewPage from './pages/OverviewPage'
@@ -21,6 +22,9 @@ function AppContent() {
 
   // Start listening for session detection events
   useSessionIngest()
+
+  // Automatically process metrics when sessions complete (for "Metrics Only" mode)
+  useAutoSessionProcessing()
 
   // NOTE: Background metric processing is available via useBackgroundProcessing()
   // but not enabled by default. Can be triggered manually from UI if needed.

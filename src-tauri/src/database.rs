@@ -3,6 +3,7 @@ use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, Utc};
 use lazy_static::lazy_static;
 use rusqlite::{params, Connection, Result};
+use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::Emitter;
 use uuid::Uuid;
@@ -80,6 +81,9 @@ pub fn insert_session(
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().timestamp_millis();
 
+    // Check if session is complete (has end time)
+    let session_completed = session_end_time.is_some();
+
     conn.execute(
         "INSERT INTO agent_sessions (
             id, provider, project_name, session_id, file_name, file_path, file_size,
@@ -114,6 +118,16 @@ pub fn insert_session(
     if let Ok(app_handle_guard) = APP_HANDLE.lock() {
         if let Some(ref app_handle) = *app_handle_guard {
             let _ = app_handle.emit("session-updated", session_id);
+
+            // Emit session-completed event if session already has end time
+            if session_completed {
+                let _ = app_handle.emit("session-completed", session_id);
+                log_info(
+                    "database",
+                    &format!("✓ Session {} completed on insert, emitted event for metrics processing", session_id),
+                )
+                .unwrap_or_default();
+            }
         }
     }
 
@@ -136,12 +150,12 @@ pub fn update_session(
 
     let now = Utc::now().timestamp_millis();
 
-    // Get the existing start time and cwd from database
-    let (existing_start_time_ms, existing_cwd): (Option<i64>, Option<String>) = conn.query_row(
-        "SELECT session_start_time, cwd FROM agent_sessions WHERE session_id = ? AND file_name = ?",
+    // Get the existing start time, end time, and cwd from database
+    let (existing_start_time_ms, existing_end_time_ms, existing_cwd): (Option<i64>, Option<i64>, Option<String>) = conn.query_row(
+        "SELECT session_start_time, session_end_time, cwd FROM agent_sessions WHERE session_id = ? AND file_name = ?",
         params![session_id, file_name],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    ).ok().unwrap_or((None, None));
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).ok().unwrap_or((None, None, None));
 
     // Use new start time if provided and existing is null, otherwise keep existing
     let final_start_time_ms = match (existing_start_time_ms, session_start_time) {
@@ -163,6 +177,9 @@ pub fn update_session(
     } else {
         None
     };
+
+    // Detect if session is being completed (first time getting end time)
+    let session_completed = existing_end_time_ms.is_none() && session_end_time.is_some();
 
     conn.execute(
         "UPDATE agent_sessions
@@ -199,6 +216,16 @@ pub fn update_session(
     if let Ok(app_handle_guard) = APP_HANDLE.lock() {
         if let Some(ref app_handle) = *app_handle_guard {
             let _ = app_handle.emit("session-updated", session_id);
+
+            // Emit session-completed event if this is the first time the session got an end time
+            if session_completed {
+                let _ = app_handle.emit("session-completed", session_id);
+                log_info(
+                    "database",
+                    &format!("✓ Session {} completed, emitted event for metrics processing", session_id),
+                )
+                .unwrap_or_default();
+            }
         }
     }
 
@@ -223,7 +250,8 @@ pub fn session_exists(session_id: &str, file_name: &str) -> Result<bool> {
 
 /// Get all unsynced sessions (for upload queue)
 /// Only returns sessions that have both start and end times, no sync failure,
-/// and where the provider's sync mode is set to "Transcript and Metrics"
+/// and where the provider's sync mode is set to "Transcript and Metrics" or "Metrics Only"
+/// For "Metrics Only" mode, also requires processing_status = 'completed' (metrics exist)
 pub fn get_unsynced_sessions() -> Result<Vec<UnsyncedSession>> {
     use crate::config::load_provider_config;
 
@@ -234,7 +262,7 @@ pub fn get_unsynced_sessions() -> Result<Vec<UnsyncedSession>> {
 
     let mut stmt = conn.prepare(
         "SELECT id, provider, project_name, session_id, file_name, file_path, file_size, cwd,
-                session_start_time, session_end_time
+                session_start_time, session_end_time, processing_status
          FROM agent_sessions
          WHERE synced_to_server = 0
            AND session_start_time IS NOT NULL
@@ -245,30 +273,49 @@ pub fn get_unsynced_sessions() -> Result<Vec<UnsyncedSession>> {
 
     let all_sessions = stmt
         .query_map([], |row| {
-            Ok(UnsyncedSession {
-                id: row.get(0)?,
-                provider: row.get(1)?,
-                project_name: row.get(2)?,
-                session_id: row.get(3)?,
-                file_name: row.get(4)?,
-                file_path: row.get(5)?,
-                file_size: row.get(6)?,
-                cwd: row.get(7)?,
-                session_start_time: row.get(8)?,
-                session_end_time: row.get(9)?,
-            })
+            Ok((
+                UnsyncedSession {
+                    id: row.get(0)?,
+                    provider: row.get(1)?,
+                    project_name: row.get(2)?,
+                    session_id: row.get(3)?,
+                    file_name: row.get(4)?,
+                    file_path: row.get(5)?,
+                    file_size: row.get(6)?,
+                    cwd: row.get(7)?,
+                    session_start_time: row.get(8)?,
+                    session_end_time: row.get(9)?,
+                },
+                row.get::<_, String>(10)?, // processing_status
+            ))
         })?
         .collect::<Result<Vec<_>>>()?;
 
-    // Filter out sessions from providers with sync mode "Nothing" or "Metrics Only"
+    // Filter to include sessions with sync mode "Transcript and Metrics" or "Metrics Only"
+    // For "Metrics Only", also require processing_status = 'completed'
     let sessions = all_sessions
         .into_iter()
-        .filter(|session| {
+        .filter_map(|(session, processing_status)| {
             match load_provider_config(&session.provider) {
-                Ok(config) => config.sync_mode == "Transcript and Metrics",
+                Ok(config) => {
+                    if config.sync_mode == "Transcript and Metrics" {
+                        // Transcript mode: upload anytime after session ends
+                        Some(session)
+                    } else if config.sync_mode == "Metrics Only" {
+                        // Metrics Only: wait for processing to complete
+                        if processing_status == "completed" {
+                            Some(session)
+                        } else {
+                            None
+                        }
+                    } else {
+                        // Other sync modes (e.g., "Nothing"): don't sync
+                        None
+                    }
+                }
                 Err(_) => {
                     // If we can't load config, default to not syncing (safe default)
-                    false
+                    None
                 }
             }
         })
@@ -746,4 +793,255 @@ pub fn get_session_rating(session_id: &str) -> Result<Option<String>> {
         .ok();
 
     Ok(rating)
+}
+
+/// Full session data structure for metrics-only sync
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FullSessionData {
+    pub session_id: String,
+    pub provider: String,
+    pub project_name: String,
+    pub file_name: String,
+    pub file_path: String,
+    pub file_size: i64,
+    pub session_start_time: Option<i64>,
+    pub session_end_time: Option<i64>,
+    pub duration_ms: Option<i64>,
+    pub processing_status: String,
+    pub queued_at: Option<i64>,
+    pub processed_at: Option<i64>,
+    pub assessment_status: String,
+    pub assessment_completed_at: Option<i64>,
+    pub ai_model_summary: Option<String>,
+    pub ai_model_quality_score: Option<i64>,
+    pub ai_model_metadata: Option<String>,
+    pub ai_model_phase_analysis: Option<String>,
+}
+
+/// Get full session data by session ID (for metrics-only sync)
+pub fn get_full_session_by_id(session_id: &str) -> Result<Option<FullSessionData>> {
+    let db_conn = DB_CONNECTION.lock().unwrap();
+    let conn = db_conn
+        .as_ref()
+        .ok_or_else(|| rusqlite::Error::InvalidQuery)?;
+
+    let session: Option<FullSessionData> = conn
+        .query_row(
+            "SELECT session_id, provider, project_name, file_name, file_path, file_size,
+                    session_start_time, session_end_time, duration_ms,
+                    processing_status, queued_at, processed_at,
+                    assessment_status, assessment_completed_at,
+                    ai_model_summary, ai_model_quality_score, ai_model_metadata, ai_model_phase_analysis
+             FROM agent_sessions
+             WHERE session_id = ?",
+            params![session_id],
+            |row| {
+                Ok(FullSessionData {
+                    session_id: row.get(0)?,
+                    provider: row.get(1)?,
+                    project_name: row.get(2)?,
+                    file_name: row.get(3)?,
+                    file_path: row.get(4)?,
+                    file_size: row.get(5)?,
+                    session_start_time: row.get(6)?,
+                    session_end_time: row.get(7)?,
+                    duration_ms: row.get(8)?,
+                    processing_status: row.get(9)?,
+                    queued_at: row.get(10)?,
+                    processed_at: row.get(11)?,
+                    assessment_status: row.get(12)?,
+                    assessment_completed_at: row.get(13)?,
+                    ai_model_summary: row.get(14)?,
+                    ai_model_quality_score: row.get(15)?,
+                    ai_model_metadata: row.get(16)?,
+                    ai_model_phase_analysis: row.get(17)?,
+                })
+            },
+        )
+        .ok();
+
+    Ok(session)
+}
+
+/// Session metrics structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionMetrics {
+    pub session_id: String,
+    pub provider: String,
+    // Performance metrics
+    pub response_latency_ms: Option<f64>,
+    pub task_completion_time_ms: Option<f64>,
+    pub performance_total_responses: Option<i64>,
+    // Usage metrics
+    pub read_write_ratio: Option<f64>,
+    pub input_clarity_score: Option<f64>,
+    pub read_operations: Option<i64>,
+    pub write_operations: Option<i64>,
+    pub total_user_messages: Option<i64>,
+    // Error metrics
+    pub error_count: Option<i64>,
+    pub error_types: Option<String>,
+    pub last_error_message: Option<String>,
+    pub recovery_attempts: Option<i64>,
+    pub fatal_errors: Option<i64>,
+    // Engagement metrics
+    pub interruption_rate: Option<f64>,
+    pub session_length_minutes: Option<f64>,
+    pub total_interruptions: Option<i64>,
+    pub engagement_total_responses: Option<i64>,
+    // Quality metrics
+    pub task_success_rate: Option<f64>,
+    pub iteration_count: Option<i64>,
+    pub process_quality_score: Option<f64>,
+    pub used_plan_mode: Option<bool>,
+    pub used_todo_tracking: Option<bool>,
+    pub over_top_affirmations: Option<i64>,
+    pub successful_operations: Option<i64>,
+    pub total_operations: Option<i64>,
+    pub exit_plan_mode_count: Option<i64>,
+    pub todo_write_count: Option<i64>,
+    pub over_top_affirmations_phrases: Option<String>,
+    pub improvement_tips: Option<String>,
+    pub custom_metrics: Option<String>,
+}
+
+/// Clear all failed sessions from the database
+pub fn clear_failed_sessions() -> Result<()> {
+    let db_conn = DB_CONNECTION.lock().unwrap();
+    let conn = db_conn
+        .as_ref()
+        .ok_or_else(|| rusqlite::Error::InvalidQuery)?;
+
+    conn.execute(
+        "DELETE FROM agent_sessions WHERE sync_failed_reason IS NOT NULL",
+        [],
+    )?;
+
+    log_info("database", "✓ Cleared all failed sessions from database").unwrap_or_default();
+
+    Ok(())
+}
+
+/// Retry all failed sessions by resetting their sync status
+pub fn retry_failed_sessions() -> Result<()> {
+    let db_conn = DB_CONNECTION.lock().unwrap();
+    let conn = db_conn
+        .as_ref()
+        .ok_or_else(|| rusqlite::Error::InvalidQuery)?;
+
+    conn.execute(
+        "UPDATE agent_sessions
+         SET sync_failed_reason = NULL, synced_to_server = 0
+         WHERE sync_failed_reason IS NOT NULL",
+        [],
+    )?;
+
+    log_info("database", "✓ Retrying all failed sessions").unwrap_or_default();
+
+    Ok(())
+}
+
+/// Remove a session from the database by ID
+pub fn remove_session_by_id(session_id: &str) -> Result<usize> {
+    let db_conn = DB_CONNECTION.lock().unwrap();
+    let conn = db_conn
+        .as_ref()
+        .ok_or_else(|| rusqlite::Error::InvalidQuery)?;
+
+    let rows_affected = conn.execute(
+        "DELETE FROM agent_sessions WHERE id = ?",
+        params![session_id],
+    )?;
+
+    if rows_affected > 0 {
+        log_info("database", &format!("✓ Removed session {} from database", session_id)).unwrap_or_default();
+    }
+
+    Ok(rows_affected)
+}
+
+/// Retry a single failed session by resetting its sync status
+pub fn retry_session_by_id(session_id: &str) -> Result<usize> {
+    let db_conn = DB_CONNECTION.lock().unwrap();
+    let conn = db_conn
+        .as_ref()
+        .ok_or_else(|| rusqlite::Error::InvalidQuery)?;
+
+    let rows_affected = conn.execute(
+        "UPDATE agent_sessions
+         SET sync_failed_reason = NULL, synced_to_server = 0
+         WHERE id = ? AND sync_failed_reason IS NOT NULL",
+        params![session_id],
+    )?;
+
+    if rows_affected > 0 {
+        log_info("database", &format!("✓ Retrying session {}", session_id)).unwrap_or_default();
+    }
+
+    Ok(rows_affected)
+}
+
+/// Get session metrics by session ID
+pub fn get_session_metrics(session_id: &str) -> Result<Option<SessionMetrics>> {
+    let db_conn = DB_CONNECTION.lock().unwrap();
+    let conn = db_conn
+        .as_ref()
+        .ok_or_else(|| rusqlite::Error::InvalidQuery)?;
+
+    let metrics: Option<SessionMetrics> = conn
+        .query_row(
+            "SELECT session_id, provider,
+                    response_latency_ms, task_completion_time_ms, performance_total_responses,
+                    read_write_ratio, input_clarity_score, read_operations, write_operations, total_user_messages,
+                    error_count, error_types, last_error_message, recovery_attempts, fatal_errors,
+                    interruption_rate, session_length_minutes, total_interruptions, engagement_total_responses,
+                    task_success_rate, iteration_count, process_quality_score,
+                    used_plan_mode, used_todo_tracking, over_top_affirmations,
+                    successful_operations, total_operations, exit_plan_mode_count, todo_write_count,
+                    over_top_affirmations_phrases, improvement_tips, custom_metrics
+             FROM session_metrics
+             WHERE session_id = ?
+             ORDER BY created_at DESC
+             LIMIT 1",
+            params![session_id],
+            |row| {
+                Ok(SessionMetrics {
+                    session_id: row.get(0)?,
+                    provider: row.get(1)?,
+                    response_latency_ms: row.get(2)?,
+                    task_completion_time_ms: row.get(3)?,
+                    performance_total_responses: row.get(4)?,
+                    read_write_ratio: row.get(5)?,
+                    input_clarity_score: row.get(6)?,
+                    read_operations: row.get(7)?,
+                    write_operations: row.get(8)?,
+                    total_user_messages: row.get(9)?,
+                    error_count: row.get(10)?,
+                    error_types: row.get(11)?,
+                    last_error_message: row.get(12)?,
+                    recovery_attempts: row.get(13)?,
+                    fatal_errors: row.get(14)?,
+                    interruption_rate: row.get(15)?,
+                    session_length_minutes: row.get(16)?,
+                    total_interruptions: row.get(17)?,
+                    engagement_total_responses: row.get(18)?,
+                    task_success_rate: row.get(19)?,
+                    iteration_count: row.get(20)?,
+                    process_quality_score: row.get(21)?,
+                    used_plan_mode: row.get::<_, Option<i64>>(22)?.map(|v| v != 0),
+                    used_todo_tracking: row.get::<_, Option<i64>>(23)?.map(|v| v != 0),
+                    over_top_affirmations: row.get(24)?,
+                    successful_operations: row.get(25)?,
+                    total_operations: row.get(26)?,
+                    exit_plan_mode_count: row.get(27)?,
+                    todo_write_count: row.get(28)?,
+                    over_top_affirmations_phrases: row.get(29)?,
+                    improvement_tips: row.get(30)?,
+                    custom_metrics: row.get(31)?,
+                })
+            },
+        )
+        .ok();
+
+    Ok(metrics)
 }

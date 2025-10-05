@@ -56,6 +56,7 @@ pub struct QueueItems {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct UploadRequest {
     pub provider: String,
     #[serde(rename = "projectName")]
@@ -871,20 +872,46 @@ impl UploadQueue {
         let provider_config = load_provider_config(&item.provider)
             .map_err(|e| format!("Failed to load provider config: {}", e))?;
 
-        // Only upload if sync mode is "Transcript and Metrics"
-        if provider_config.sync_mode != "Transcript and Metrics" {
-            return Err(format!(
-                "Sync mode is '{}', skipping upload (need 'Transcript and Metrics')",
-                provider_config.sync_mode
-            ));
+        // Route to appropriate upload function based on sync mode
+        match provider_config.sync_mode.as_str() {
+            "Metrics Only" => {
+                // Metrics-only sync: upload session metadata and metrics without JSONL
+                Self::upload_metrics_only(item, config.clone()).await
+            }
+            "Transcript and Metrics" => {
+                // Full sync: upload JSONL + metrics
+                Self::upload_transcript_and_metrics(item, config.clone()).await
+            }
+            _ => {
+                Err(format!(
+                    "Sync mode is '{}', skipping upload (expected 'Metrics Only' or 'Transcript and Metrics')",
+                    provider_config.sync_mode
+                ))
+            }
         }
+    }
+
+    /// Upload session metadata and metrics only (no JSONL transcript)
+    async fn upload_metrics_only(
+        item: &UploadItem,
+        config: GuideAIConfig,
+    ) -> Result<(), String> {
+        use crate::database::{get_full_session_by_id, get_session_metrics, get_session_rating};
 
         let api_key = config.api_key.clone().ok_or("No API key configured")?;
         let server_url = config
             .server_url
             .clone()
             .ok_or("No server URL configured")?;
-        let _tenant_id = config.tenant_id.clone().ok_or("No tenant ID configured")?;
+
+        // Get session ID
+        let session_id = item.session_id.as_ref()
+            .ok_or("Session ID required for metrics-only sync")?;
+
+        // Fetch full session data from database
+        let session_data = get_full_session_by_id(session_id)
+            .map_err(|e| format!("Failed to get session data: {}", e))?
+            .ok_or_else(|| format!("Session {} not found in database", session_id))?;
 
         // Extract and upload project metadata if CWD is available
         let final_project_name = if let Some(ref cwd) = item.cwd {
@@ -910,9 +937,136 @@ impl UploadQueue {
                     .unwrap_or_default();
 
                     // Upload project metadata to server
-                    if let Err(e) =
-                        Self::upload_project_metadata_static(&metadata, Some(config)).await
-                    {
+                    if let Err(e) = Self::upload_project_metadata_static(&metadata, Some(config.clone())).await {
+                        log_warn("upload-queue", &format!("⚠ Failed to upload project metadata: {}", e))
+                            .unwrap_or_default();
+                    }
+
+                    metadata.project_name
+                }
+                Err(e) => {
+                    log_warn(
+                        "upload-queue",
+                        &format!("⚠ Could not extract project metadata: {} - using folder name", e),
+                    )
+                    .unwrap_or_default();
+                    item.project_name.clone()
+                }
+            }
+        } else {
+            item.project_name.clone()
+        };
+
+        // Helper to convert timestamp to ISO string
+        let timestamp_to_iso = |ts_ms: Option<i64>| -> Option<String> {
+            ts_ms.map(|ms| {
+                DateTime::from_timestamp_millis(ms)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default()
+            })
+        };
+
+        // Get rating if available
+        let rating = get_session_rating(session_id).ok().flatten();
+
+        // Prepare session upload request without content
+        let session_request = serde_json::json!({
+            "provider": session_data.provider,
+            "projectName": final_project_name,
+            "sessionId": session_data.session_id,
+            "fileName": session_data.file_name,
+            "filePath": session_data.file_path,
+            // No content field - metrics only
+            "sessionStartTime": timestamp_to_iso(session_data.session_start_time),
+            "sessionEndTime": timestamp_to_iso(session_data.session_end_time),
+            "durationMs": session_data.duration_ms,
+            "processingStatus": session_data.processing_status,
+            "queuedAt": timestamp_to_iso(session_data.queued_at),
+            "processedAt": timestamp_to_iso(session_data.processed_at),
+            "assessmentStatus": session_data.assessment_status,
+            "assessmentCompletedAt": timestamp_to_iso(session_data.assessment_completed_at),
+            "assessmentRating": rating,
+            "aiModelSummary": session_data.ai_model_summary,
+            "aiModelQualityScore": session_data.ai_model_quality_score,
+            "aiModelMetadata": session_data.ai_model_metadata.and_then(|s| serde_json::from_str::<Value>(&s).ok()),
+            "aiModelPhaseAnalysis": session_data.ai_model_phase_analysis.and_then(|s| serde_json::from_str::<Value>(&s).ok()),
+        });
+
+        // Upload session metadata
+        let client = reqwest::Client::new();
+        let url = format!("{}/api/agent-sessions/upload", server_url);
+
+        let response = client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .json(&session_request)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to upload session metadata: {}", e))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(format!("Session upload failed with status {}: {}", status, error_text));
+        }
+
+        log_info(
+            "upload-queue",
+            &format!("✓ Uploaded session metadata for {}", session_id),
+        )
+        .unwrap_or_default();
+
+        // Fetch and upload metrics
+        if let Ok(Some(metrics)) = get_session_metrics(session_id) {
+            Self::upload_session_metrics(&metrics, &server_url, &api_key).await?;
+        } else {
+            log_warn(
+                "upload-queue",
+                &format!("⚠ No metrics found for session {}", session_id),
+            )
+            .unwrap_or_default();
+        }
+
+        Ok(())
+    }
+
+    /// Upload session transcript (JSONL) and metrics
+    async fn upload_transcript_and_metrics(
+        item: &UploadItem,
+        config: GuideAIConfig,
+    ) -> Result<(), String> {
+        let api_key = config.api_key.clone().ok_or("No API key configured")?;
+        let server_url = config
+            .server_url
+            .clone()
+            .ok_or("No server URL configured")?;
+
+        // Extract and upload project metadata if CWD is available
+        let final_project_name = if let Some(ref cwd) = item.cwd {
+            use crate::project_metadata::extract_project_metadata;
+
+            log_info(
+                "upload-queue",
+                &format!("📁 Extracting project metadata from CWD: {}", cwd),
+            )
+            .unwrap_or_default();
+
+            match extract_project_metadata(cwd) {
+                Ok(metadata) => {
+                    log_info(
+                        "upload-queue",
+                        &format!(
+                            "✓ Extracted project: {} (type: {}, git: {})",
+                            metadata.project_name,
+                            metadata.detected_project_type,
+                            metadata.git_remote_url.as_deref().unwrap_or("none")
+                        ),
+                    )
+                    .unwrap_or_default();
+
+                    // Upload project metadata to server
+                    if let Err(e) = Self::upload_project_metadata_static(&metadata, Some(config.clone())).await {
                         log_warn("upload-queue", &format!("⚠ Failed to upload project metadata: {} - continuing with session upload", e))
                             .unwrap_or_default();
                     } else {
@@ -998,15 +1152,48 @@ impl UploadQueue {
                 .to_string()
         });
 
-        // Prepare upload request (use final_project_name which may be the real project name from metadata)
-        let upload_request = UploadRequest {
-            provider: item.provider.clone(),
-            project_name: final_project_name,
-            session_id,
-            file_name: item.file_name.clone(),
-            file_path: item.file_path.to_string_lossy().to_string(),
-            content: encoded_content,
+        // Get full session data from database to include all fields
+        use crate::database::{get_full_session_by_id, get_session_rating};
+
+        let session_data = get_full_session_by_id(&session_id)
+            .map_err(|e| format!("Failed to get session data: {}", e))?
+            .ok_or_else(|| format!("Session {} not found in database", session_id))?;
+
+        // Helper to convert timestamp to ISO string
+        let timestamp_to_iso = |ts_ms: Option<i64>| -> Option<String> {
+            ts_ms.map(|ms| {
+                DateTime::from_timestamp_millis(ms)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default()
+            })
         };
+
+        // Get rating if available
+        let rating = get_session_rating(&session_id).ok().flatten();
+
+        // Prepare upload request with ALL session fields (use final_project_name which may be the real project name from metadata)
+        let upload_request = serde_json::json!({
+            "provider": item.provider.clone(),
+            "projectName": final_project_name,
+            "sessionId": session_id.clone(),
+            "fileName": item.file_name.clone(),
+            "filePath": item.file_path.to_string_lossy().to_string(),
+            "content": encoded_content,
+            // Include all session metadata fields
+            "sessionStartTime": timestamp_to_iso(session_data.session_start_time),
+            "sessionEndTime": timestamp_to_iso(session_data.session_end_time),
+            "durationMs": session_data.duration_ms,
+            "processingStatus": session_data.processing_status,
+            "queuedAt": timestamp_to_iso(session_data.queued_at),
+            "processedAt": timestamp_to_iso(session_data.processed_at),
+            "assessmentStatus": session_data.assessment_status,
+            "assessmentCompletedAt": timestamp_to_iso(session_data.assessment_completed_at),
+            "assessmentRating": rating,
+            "aiModelSummary": session_data.ai_model_summary,
+            "aiModelQualityScore": session_data.ai_model_quality_score,
+            "aiModelMetadata": session_data.ai_model_metadata.and_then(|s| serde_json::from_str::<Value>(&s).ok()),
+            "aiModelPhaseAnalysis": session_data.ai_model_phase_analysis.and_then(|s| serde_json::from_str::<Value>(&s).ok()),
+        });
 
         // Make HTTP request to server
         let client = reqwest::Client::new();
@@ -1021,39 +1208,138 @@ impl UploadQueue {
             .await
             .map_err(|e| format!("HTTP request failed: {}", e))?;
 
-        if response.status().is_success() {
-            Ok(())
-        } else {
+        if !response.status().is_success() {
             let status = response.status();
             let error_text = response
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
-            Err(format!(
+            return Err(format!(
                 "Upload failed with status {}: {}",
                 status, error_text
-            ))
+            ));
         }
+
+        log_info(
+            "upload-queue",
+            &format!("✓ Uploaded session transcript for {}", session_id),
+        )
+        .unwrap_or_default();
+
+        // Also upload metrics if available
+        use crate::database::get_session_metrics;
+        if let Ok(Some(metrics)) = get_session_metrics(&session_id) {
+            if let Err(e) = Self::upload_session_metrics(&metrics, &server_url, &api_key).await {
+                log_warn(
+                    "upload-queue",
+                    &format!("⚠ Failed to upload metrics for {}: {} - session uploaded successfully", session_id, e),
+                )
+                .unwrap_or_default();
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Helper function to upload session metrics to server
+    async fn upload_session_metrics(
+        metrics: &crate::database::SessionMetrics,
+        server_url: &str,
+        api_key: &str,
+    ) -> Result<(), String> {
+        // Helper to parse JSON array from comma-separated string
+        let parse_array = |s: &Option<String>| -> Option<Vec<String>> {
+            s.as_ref().map(|str_val| {
+                str_val
+                    .split(',')
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.trim().to_string())
+                    .collect()
+            })
+        };
+
+        // Prepare metrics upload request
+        let metrics_request = serde_json::json!({
+            "metrics": [{
+                "sessionId": metrics.session_id,
+                "provider": metrics.provider,
+                // Performance metrics
+                "responseLatencyMs": metrics.response_latency_ms,
+                "taskCompletionTimeMs": metrics.task_completion_time_ms,
+                "performanceTotalResponses": metrics.performance_total_responses,
+                // Usage metrics
+                "readWriteRatio": metrics.read_write_ratio,
+                "inputClarityScore": metrics.input_clarity_score,
+                "readOperations": metrics.read_operations,
+                "writeOperations": metrics.write_operations,
+                "totalUserMessages": metrics.total_user_messages,
+                // Error metrics
+                "errorCount": metrics.error_count,
+                "errorTypes": parse_array(&metrics.error_types),
+                "lastErrorMessage": metrics.last_error_message,
+                "recoveryAttempts": metrics.recovery_attempts,
+                "fatalErrors": metrics.fatal_errors,
+                // Engagement metrics
+                "interruptionRate": metrics.interruption_rate,
+                "sessionLengthMinutes": metrics.session_length_minutes,
+                "totalInterruptions": metrics.total_interruptions,
+                "engagementTotalResponses": metrics.engagement_total_responses,
+                // Quality metrics
+                "taskSuccessRate": metrics.task_success_rate,
+                "iterationCount": metrics.iteration_count,
+                "processQualityScore": metrics.process_quality_score,
+                "usedPlanMode": metrics.used_plan_mode,
+                "usedTodoTracking": metrics.used_todo_tracking,
+                "overTopAffirmations": metrics.over_top_affirmations,
+                "successfulOperations": metrics.successful_operations,
+                "totalOperations": metrics.total_operations,
+                "exitPlanModeCount": metrics.exit_plan_mode_count,
+                "todoWriteCount": metrics.todo_write_count,
+                "overTopAffirmationsPhrases": parse_array(&metrics.over_top_affirmations_phrases),
+                "improvementTips": parse_array(&metrics.improvement_tips),
+                // Custom metrics
+                "customMetrics": metrics.custom_metrics.as_ref().and_then(|s| serde_json::from_str::<Value>(s).ok()),
+            }]
+        });
+
+        // Upload metrics
+        let client = reqwest::Client::new();
+        let url = format!("{}/api/session-metrics/upload", server_url);
+
+        let response = client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .json(&metrics_request)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to upload metrics: {}", e))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(format!("Metrics upload failed with status {}: {}", status, error_text));
+        }
+
+        log_info(
+            "upload-queue",
+            &format!("✓ Uploaded metrics for session {}", metrics.session_id),
+        )
+        .unwrap_or_default();
+
+        Ok(())
     }
 
     pub fn clear_failed(&self) {
-        if let Ok(mut failed) = self.failed_items.lock() {
-            failed.clear();
-        }
+        // Clear failed sessions from database by deleting them
+        use crate::database::clear_failed_sessions;
+        let _ = clear_failed_sessions();
     }
 
     pub fn retry_failed(&self) {
-        if let Ok(mut failed) = self.failed_items.lock() {
-            if let Ok(mut queue) = self.queue.lock() {
-                // Move all failed items back to queue, reset retry count
-                for mut item in failed.drain(..) {
-                    item.retry_count = 0;
-                    item.next_retry_at = None;
-                    item.last_error = None;
-                    queue.push_back(item);
-                }
-            }
-        }
+        // Retry failed sessions by clearing sync_failed_reason and resetting synced_to_server
+        use crate::database::retry_failed_sessions;
+        let _ = retry_failed_sessions();
     }
 
     pub fn clear_uploaded_hashes(&self) {
@@ -1123,52 +1409,30 @@ impl UploadQueue {
     }
 
     pub fn remove_item(&self, item_id: &str) -> Result<(), String> {
-        // Try to remove from pending queue
-        if let Ok(mut queue) = self.queue.lock() {
-            if let Some(index) = queue.iter().position(|item| item.id == item_id) {
-                queue.remove(index);
-                return Ok(());
-            }
-        }
+        // Remove session from database by ID
+        use crate::database::remove_session_by_id;
 
-        // Try to remove from failed items
-        if let Ok(mut failed) = self.failed_items.lock() {
-            if let Some(index) = failed.iter().position(|item| item.id == item_id) {
-                failed.remove(index);
-                return Ok(());
-            }
-        }
+        let rows_affected = remove_session_by_id(item_id)
+            .map_err(|e| format!("Failed to remove item: {}", e))?;
 
-        Err("Item not found in queue".to_string())
+        if rows_affected > 0 {
+            Ok(())
+        } else {
+            Err("Item not found in database".to_string())
+        }
     }
 
     pub fn retry_item(&self, item_id: &str) -> Result<(), String> {
-        // Find item in failed list
-        let item = if let Ok(mut failed) = self.failed_items.lock() {
-            if let Some(index) = failed.iter().position(|item| item.id == item_id) {
-                let mut item = failed.remove(index);
-                // Reset retry info
-                item.retry_count = 0;
-                item.next_retry_at = None;
-                item.last_error = None;
-                Some(item)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        // Retry failed session by clearing sync_failed_reason and resetting synced_to_server
+        use crate::database::retry_session_by_id;
 
-        if let Some(item) = item {
-            // Add back to queue
-            if let Ok(mut queue) = self.queue.lock() {
-                queue.push_back(item);
-                Ok(())
-            } else {
-                Err("Failed to access queue".to_string())
-            }
+        let rows_affected = retry_session_by_id(item_id)
+            .map_err(|e| format!("Failed to retry item: {}", e))?;
+
+        if rows_affected > 0 {
+            Ok(())
         } else {
-            Err("Item not found in failed list".to_string())
+            Err("Item not found or not in failed state".to_string())
         }
     }
 

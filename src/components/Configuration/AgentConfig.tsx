@@ -42,7 +42,7 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
   const [shouldFlash, setShouldFlash] = useState(false)
 
   // Track pending sync mode change for confirmation
-  const [pendingSyncMode, setPendingSyncMode] = useState<'Transcript and Metrics' | null>(null)
+  const [pendingSyncMode, setPendingSyncMode] = useState<'Transcript and Metrics' | 'Metrics Only' | null>(null)
 
   // Watcher hooks - conditional based on provider
   const { data: claudeWatcherStatus } = useClaudeWatcherStatus()
@@ -162,10 +162,15 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
   }
 
   const handleConfigChange = (updates: Partial<ProviderConfig>) => {
-    // Check if changing sync mode from "Nothing" to "Transcript and Metrics"
-    if (updates.syncMode === 'Transcript and Metrics' && localConfig.syncMode === 'Nothing') {
-      setPendingSyncMode('Transcript and Metrics')
-      return // Show confirmation dialog
+    // Check if changing sync mode from "Nothing" to a sync mode
+    if (localConfig.syncMode === 'Nothing') {
+      if (updates.syncMode === 'Transcript and Metrics') {
+        setPendingSyncMode('Transcript and Metrics')
+        return // Show confirmation dialog
+      } else if (updates.syncMode === 'Metrics Only') {
+        setPendingSyncMode('Metrics Only')
+        return // Show confirmation dialog
+      }
     }
 
     applySyncModeChange(updates)
@@ -315,13 +320,14 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
                     />
                     <span className="label-text">Nothing</span>
                   </label>
-                  <label className="cursor-pointer flex items-center gap-2 opacity-50" title="Coming soon">
+                  <label className="cursor-pointer flex items-center gap-2">
                     <input
                       type="radio"
                       name={`sync-mode-${agent.id}`}
                       className="radio radio-primary radio-sm"
                       checked={localConfig.syncMode === 'Metrics Only'}
-                      disabled={true}
+                      onChange={() => handleConfigChange({ syncMode: 'Metrics Only' })}
+                      disabled={isConfigLoading}
                     />
                     <span className="label-text">Metrics Only</span>
                   </label>
@@ -340,6 +346,11 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
                 {localConfig.syncMode === 'Nothing' && (
                   <label className="label">
                     <span className="label-text-alt text-warning">⚠ Sessions will only be stored locally</span>
+                  </label>
+                )}
+                {localConfig.syncMode === 'Metrics Only' && (
+                  <label className="label">
+                    <span className="label-text-alt text-info">🔒 Privacy mode: Transcripts stay local, only metrics synced</span>
                   </label>
                 )}
               </div>
@@ -511,8 +522,14 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
       {/* Sync Mode Confirmation Dialog */}
       <ConfirmDialog
         isOpen={pendingSyncMode !== null}
-        title="Enable Full Synchronization?"
-        message="This will upload all historical and future transcripts and metrics to the server (they can be subsequently deleted there if you need to). Are you sure you want to enable this feature?"
+        title={pendingSyncMode === 'Metrics Only'
+          ? "Enable Privacy-Aware Sync?"
+          : "Enable Full Synchronization?"
+        }
+        message={pendingSyncMode === 'Metrics Only'
+          ? "This will upload only session metadata and metrics to the server. Your transcripts will remain completely private on your local machine. Historical and future metrics will be synced."
+          : "This will upload all historical and future transcripts and metrics to the server (they can be subsequently deleted there if you need to). Are you sure you want to enable this feature?"
+        }
         confirmText="Enable"
         cancelText="Cancel"
         onConfirm={handleConfirmSyncMode}
