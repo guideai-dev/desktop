@@ -60,7 +60,7 @@ export function useSessionSync(providerId: string) {
       setError(null)
 
       // Also invalidate upload queue status to show new uploads
-      queryClient.invalidateQueries({ queryKey: ['upload-queue-status'] })
+      queryClient.invalidateQueries({ queryKey: ['upload-queue', 'status'] })
     },
     onError: (err) => {
       setError(err instanceof Error ? err.message : 'Failed to sync sessions')

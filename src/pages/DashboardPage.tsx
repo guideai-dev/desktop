@@ -52,7 +52,6 @@ function DashboardPage() {
     { id: 'github-copilot', name: 'GitHub Copilot', isRunning: copilotStatus?.is_running },
     { id: 'opencode', name: 'OpenCode', isRunning: opencodeStatus?.is_running },
     { id: 'codex', name: 'Codex', isRunning: codexStatus?.is_running },
-    { id: 'codex', name: 'Codex', isRunning: codexStatus?.is_running },
   ].filter(p => p.isRunning)
 
   // Get latest 5 sessions

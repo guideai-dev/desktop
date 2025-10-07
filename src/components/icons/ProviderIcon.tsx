@@ -23,8 +23,8 @@ function ProviderIcon({ providerId, className = '', size = 20 }: ProviderIconPro
     return null
   }
 
-  // Add light background for OpenAI Codex
-  const needsBackground = providerId === 'codex'
+  // Add light background for OpenAI Codex and GitHub Copilot (dark icons)
+  const needsBackground = providerId === 'codex' || providerId === 'github-copilot'
   const wrapperClassName = needsBackground ? 'inline-flex items-center justify-center bg-white rounded' : ''
 
   const icon = (

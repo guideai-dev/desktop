@@ -1,6 +1,6 @@
 {
   "name": "@guideai-dev/desktop",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "description": "GuideAI desktop menubar application",
   "type": "module",
   "scripts": {
@@ -17,7 +17,7 @@
     "tauri:build:linux": "tauri build --target x86_64-unknown-linux-gnu",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist/* build src-tauri/target",
-    "test": "echo 'No tests yet'"
+    "test": "vitest"
   },
   "dependencies": {
     "@guideai-dev/session-processing": "workspace:*",
@@ -40,16 +40,21 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",
     "@tauri-apps/cli": "^2.3.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^22.10.6",
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "daisyui": "^5.1.26",
+    "jsdom": "^27.0.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^4.1.13",
     "typescript": "^5.7.2",
-    "vite": "^6.0.7"
+    "vite": "^6.0.7",
+    "vitest": "^2.1.8"
   },
   "repository": {
     "type": "git",

@@ -230,8 +230,9 @@ fn extract_session_timing(
                 entry
                     .get("timestamp")
                     .and_then(|ts| ts.as_str())
-                    .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok())
-                    .map(|dt| dt.with_timezone(&Utc))
+                    .and_then(|ts_str| {
+                        DateTime::parse_from_rfc3339(ts_str).ok().map(|dt| dt.with_timezone(&Utc))
+                    })
             })
     });
 
@@ -243,15 +244,25 @@ fn extract_session_timing(
                 entry
                     .get("timestamp")
                     .and_then(|ts| ts.as_str())
-                    .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok())
-                    .map(|dt| dt.with_timezone(&Utc))
+                    .and_then(|ts_str| {
+                        DateTime::parse_from_rfc3339(ts_str).ok().map(|dt| dt.with_timezone(&Utc))
+                    })
             })
     });
 
     // Calculate duration
     let duration_ms = match (session_start_time, session_end_time) {
         (Some(start), Some(end)) => Some((end - start).num_milliseconds()),
-        _ => None,
+        (Some(_), None) => None, // Session still active
+        (None, Some(_)) => {
+            // Unusual: has end but no start
+            let _ = log_warn(
+                "db_helpers",
+                "⚠️  Session has end time but no start time",
+            );
+            None
+        }
+        (None, None) => None, // No timestamps found
     };
 
     Ok((session_start_time, session_end_time, duration_ms))
@@ -305,11 +316,11 @@ fn extract_cwd_from_file(provider_id: &str, file_path: &PathBuf) -> Option<Strin
             }
         }
         "opencode" => {
-            // OpenCode: Look for worktree field in project records
+            // OpenCode: Look for cwd field in virtual JSONL
             for line in lines {
                 if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
-                    if let Some(worktree) = entry.get("worktree").and_then(|v| v.as_str()) {
-                        return Some(worktree.to_string());
+                    if let Some(cwd) = entry.get("cwd").and_then(|v| v.as_str()) {
+                        return Some(cwd.to_string());
                     }
                 }
             }

@@ -137,7 +137,7 @@ pub fn insert_session(
 /// Update an existing session with new activity (file size, timestamp)
 pub fn update_session(
     session_id: &str,
-    file_name: &str,
+    _file_name: &str,  // Kept for API compatibility but not used in query
     file_size: u64,
     session_start_time: Option<DateTime<Utc>>,
     session_end_time: Option<DateTime<Utc>>,
@@ -151,9 +151,10 @@ pub fn update_session(
     let now = Utc::now().timestamp_millis();
 
     // Get the existing start time, end time, and cwd from database
+    // Query by session_id only since providers like OpenCode have multiple files per session
     let (existing_start_time_ms, existing_end_time_ms, existing_cwd): (Option<i64>, Option<i64>, Option<String>) = conn.query_row(
-        "SELECT session_start_time, session_end_time, cwd FROM agent_sessions WHERE session_id = ? AND file_name = ?",
-        params![session_id, file_name],
+        "SELECT session_start_time, session_end_time, cwd FROM agent_sessions WHERE session_id = ?",
+        params![session_id],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
     ).ok().unwrap_or((None, None, None));
 
@@ -181,6 +182,7 @@ pub fn update_session(
     // Detect if session is being completed (first time getting end time)
     let session_completed = existing_end_time_ms.is_none() && session_end_time.is_some();
 
+    // Update by session_id only since providers like OpenCode have multiple files per session
     conn.execute(
         "UPDATE agent_sessions
          SET file_size = ?,
@@ -190,7 +192,7 @@ pub fn update_session(
              cwd = ?,
              uploaded_at = ?,
              synced_to_server = 0
-         WHERE session_id = ? AND file_name = ?",
+         WHERE session_id = ?",
         params![
             file_size as i64,
             final_start_time_ms,
@@ -199,7 +201,6 @@ pub fn update_session(
             final_cwd,
             now,
             session_id,
-            file_name,
         ],
     )?;
 
@@ -233,15 +234,17 @@ pub fn update_session(
 }
 
 /// Check if a session already exists in the database
-pub fn session_exists(session_id: &str, file_name: &str) -> Result<bool> {
+pub fn session_exists(session_id: &str, _file_name: &str) -> Result<bool> {  // Kept for API compatibility but not used in query
     let db_conn = DB_CONNECTION.lock().unwrap();
     let conn = db_conn
         .as_ref()
         .ok_or_else(|| rusqlite::Error::InvalidQuery)?;
 
+    // Check by session_id only since providers like OpenCode have multiple files per session
+    // The session_id field has a UNIQUE constraint, so we only need to check that
     let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM agent_sessions WHERE session_id = ? AND file_name = ?",
-        params![session_id, file_name],
+        "SELECT COUNT(*) FROM agent_sessions WHERE session_id = ?",
+        params![session_id],
         |row| row.get(0),
     )?;
 

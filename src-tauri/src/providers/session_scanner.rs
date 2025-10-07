@@ -276,27 +276,44 @@ fn parse_opencode_session(
     session_id: &str,
     _project: &super::opencode_parser::OpenCodeProject,
 ) -> Result<SessionInfo, String> {
+    use std::fs;
+
     // Parse the session using the OpenCode parser
     let parsed_session = parser
         .parse_session(session_id)
         .map_err(|e| format!("Failed to parse session with OpenCode parser: {}", e))?;
 
-    // Create a temporary file path for the session (since we're generating in-memory content)
+    // Create cache directory if it doesn't exist
+    let cache_dir = dirs::home_dir()
+        .ok_or("Could not find home directory")?
+        .join(".guideai")
+        .join("cache")
+        .join("opencode");
+
+    fs::create_dir_all(&cache_dir)
+        .map_err(|e| format!("Failed to create cache directory: {}", e))?;
+
+    // Write virtual JSONL to cache (same as watcher does)
     let file_name = format!("{}.jsonl", session_id);
-    let dummy_file_path = PathBuf::from(&file_name);
+    let cached_file_path = cache_dir.join(&file_name);
+
+    fs::write(&cached_file_path, &parsed_session.jsonl_content)
+        .map_err(|e| format!("Failed to write cached JSONL: {}", e))?;
+
+    let file_size = parsed_session.jsonl_content.len() as u64;
 
     Ok(SessionInfo {
         provider: "opencode".to_string(),
         project_name: parsed_session.project_name,
         session_id: parsed_session.session_id,
-        file_path: dummy_file_path,
+        file_path: cached_file_path,
         file_name,
         session_start_time: parsed_session.session_start_time,
         session_end_time: parsed_session.session_end_time,
         duration_ms: parsed_session.duration_ms,
-        file_size: parsed_session.jsonl_content.len() as u64,
-        content: Some(parsed_session.jsonl_content), // OpenCode sessions have in-memory content
-        cwd: parsed_session.cwd,                     // OpenCode sessions have CWD
+        file_size,
+        content: None, // Now using cached file, not in-memory content
+        cwd: parsed_session.cwd,
     })
 }
 

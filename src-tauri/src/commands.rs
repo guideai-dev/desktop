@@ -1070,43 +1070,16 @@ pub async fn clear_all_sessions() -> Result<String, String> {
 pub async fn get_session_content(
     provider: String,
     file_path: String,
-    session_id: String,
+    _session_id: String,
 ) -> Result<String, String> {
-    use crate::config::load_provider_config;
-    use crate::providers::OpenCodeParser;
-    use shellexpand::tilde;
     use std::path::PathBuf;
 
     let path = PathBuf::from(&file_path);
 
-    match provider.as_str() {
-        "github-copilot" => {
-            // Copilot: Read snapshot file directly (now using snapshot-based JSONL files)
-            std::fs::read_to_string(&path)
-                .map_err(|e| format!("Failed to read Copilot snapshot file: {}", e))
-        }
-        "opencode" => {
-            // OpenCode: Parse and consolidate distributed files into single JSONL
-            let provider_config = load_provider_config("opencode")
-                .map_err(|e| format!("Failed to load OpenCode config: {}", e))?;
-
-            let storage_path =
-                PathBuf::from(tilde(&provider_config.home_directory).as_ref()).join("storage");
-            let parser = OpenCodeParser::new(storage_path);
-
-            // Parse session to consolidate files
-            let parsed_session = parser
-                .parse_session(&session_id)
-                .map_err(|e| format!("Failed to parse OpenCode session: {}", e))?;
-
-            // Return consolidated JSONL content
-            Ok(parsed_session.jsonl_content)
-        }
-        _ => {
-            // Claude Code, Codex: Read file content directly
-            std::fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))
-        }
-    }
+    // All providers now use cached JSONL files - read directly
+    // OpenCode sessions are aggregated to ~/.guideai/cache/opencode/{session_id}.jsonl
+    std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read session file for {}: {}", provider, e))
 }
 
 // Autostart function for watchers

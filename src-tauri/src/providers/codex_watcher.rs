@@ -2,7 +2,7 @@ use crate::config::load_provider_config;
 use crate::logging::{log_debug, log_error, log_info};
 use crate::providers::db_helpers::insert_session_immediately;
 use crate::upload_queue::UploadQueue;
-use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Config, Event, EventKind, PollWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use shellexpand::tilde;
 use std::collections::HashMap;
@@ -44,7 +44,7 @@ pub struct SessionState {
 
 #[derive(Debug)]
 pub struct CodexWatcher {
-    _watcher: RecommendedWatcher,
+    _watcher: PollWatcher,
     _thread_handle: thread::JoinHandle<()>,
     upload_queue: Arc<UploadQueue>,
     is_running: Arc<Mutex<bool>>,
@@ -101,17 +101,53 @@ impl CodexWatcher {
         // Create file system event channel
         let (tx, rx) = mpsc::channel();
 
-        // Create the file watcher
-        let mut watcher = RecommendedWatcher::new(
-            tx,
-            Config::default().with_poll_interval(Duration::from_secs(2)),
-        )?;
-
-        // Watch the entire sessions directory recursively (includes YYYY/MM/DD subdirs)
-        watcher.watch(&sessions_path, RecursiveMode::Recursive)?;
+        // Create the file watcher with aggressive polling
+        // Note: We use PollWatcher instead of RecommendedWatcher because Codex keeps
+        // session files open with write descriptors, and macOS FSEvents doesn't
+        // reliably detect writes to already-open files until they're closed/fsynced
         if let Err(e) = log_info(
             PROVIDER_ID,
-            &format!("📂 Watching Codex sessions: {}", sessions_path.display()),
+            "⚙️  Using PollWatcher (checks file changes every 2s) for Codex sessions",
+        ) {
+            eprintln!("Logging error: {}", e);
+        }
+
+        let mut watcher = notify::PollWatcher::new(
+            tx,
+            Config::default()
+                .with_poll_interval(Duration::from_secs(2))
+                .with_compare_contents(true), // Actually check file contents changed
+        )?;
+
+        // Discover and watch all existing session subdirectories (YYYY/MM/DD structure)
+        let subdirs = Self::discover_session_subdirectories(&sessions_path)?;
+
+        if let Err(e) = log_info(
+            PROVIDER_ID,
+            &format!(
+                "📂 Found {} Codex session subdirectories to watch",
+                subdirs.len()
+            ),
+        ) {
+            eprintln!("Logging error: {}", e);
+        }
+
+        // Watch each subdirectory explicitly (more reliable than recursive on macOS)
+        for subdir in &subdirs {
+            watcher.watch(subdir, RecursiveMode::NonRecursive)?;
+            if let Err(e) = log_info(
+                PROVIDER_ID,
+                &format!("📁 Watching Codex session directory: {}", subdir.display()),
+            ) {
+                eprintln!("Logging error: {}", e);
+            }
+        }
+
+        // Also watch the root sessions directory for new subdirectories being created
+        watcher.watch(&sessions_path, RecursiveMode::NonRecursive)?;
+        if let Err(e) = log_info(
+            PROVIDER_ID,
+            &format!("📂 Watching root sessions directory: {}", sessions_path.display()),
         ) {
             eprintln!("Logging error: {}", e);
         }
@@ -137,6 +173,69 @@ impl CodexWatcher {
             upload_queue,
             is_running,
         })
+    }
+
+    fn discover_session_subdirectories(
+        sessions_path: &Path,
+    ) -> Result<Vec<PathBuf>, Box<dyn std::error::Error + Send + Sync>> {
+        use std::fs;
+
+        let mut subdirs = Vec::new();
+
+        // Codex uses YYYY/MM/DD structure
+        // Iterate through year directories
+        if let Ok(entries) = fs::read_dir(sessions_path) {
+            for entry in entries.flatten() {
+                let year_path = entry.path();
+                if year_path.is_dir() {
+                    // Check if it looks like a year (4 digits)
+                    if let Some(year_name) = year_path.file_name().and_then(|n| n.to_str()) {
+                        if year_name.len() == 4 && year_name.chars().all(|c| c.is_ascii_digit()) {
+                            // Iterate through month directories
+                            if let Ok(month_entries) = fs::read_dir(&year_path) {
+                                for month_entry in month_entries.flatten() {
+                                    let month_path = month_entry.path();
+                                    if month_path.is_dir() {
+                                        // Check if it looks like a month (2 digits)
+                                        if let Some(month_name) =
+                                            month_path.file_name().and_then(|n| n.to_str())
+                                        {
+                                            if month_name.len() == 2
+                                                && month_name.chars().all(|c| c.is_ascii_digit())
+                                            {
+                                                // Iterate through day directories
+                                                if let Ok(day_entries) = fs::read_dir(&month_path) {
+                                                    for day_entry in day_entries.flatten() {
+                                                        let day_path = day_entry.path();
+                                                        if day_path.is_dir() {
+                                                            // Check if it looks like a day (2 digits)
+                                                            if let Some(day_name) = day_path
+                                                                .file_name()
+                                                                .and_then(|n| n.to_str())
+                                                            {
+                                                                if day_name.len() == 2
+                                                                    && day_name
+                                                                        .chars()
+                                                                        .all(|c| c.is_ascii_digit())
+                                                                {
+                                                                    subdirs.push(day_path);
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(subdirs)
     }
 
     fn file_event_processor(
@@ -187,9 +286,11 @@ impl CodexWatcher {
 
                         if should_log {
                             if file_event.is_new_session {
+                                // First time this watcher session has seen this session
+                                // (but it may already exist in database from previous run)
                                 let log_message = format!(
-                                    "🆕 New Codex session detected: {} → Saved to database",
-                                    file_event.session_id
+                                    "🔍 Codex session detected: {} (size: {} bytes) → Processing",
+                                    file_event.session_id, file_event.file_size
                                 );
                                 if let Err(e) = log_info(PROVIDER_ID, &log_message) {
                                     eprintln!("Logging error: {}", e);
@@ -239,6 +340,14 @@ impl CodexWatcher {
         sessions_path: &Path,
         session_states: &HashMap<String, SessionState>,
     ) -> Option<FileChangeEvent> {
+        // Filter out event types we don't care about
+        match &event.kind {
+            EventKind::Access(_) | EventKind::Remove(_) | EventKind::Any | EventKind::Other => {
+                return None;
+            }
+            _ => {}
+        }
+
         // Only process write events for .jsonl files
         match &event.kind {
             EventKind::Create(_) | EventKind::Modify(_) => {
@@ -264,10 +373,15 @@ impl CodexWatcher {
                         continue;
                     }
 
-                    // Extract project name and session ID from path
-                    if let Some((project_name, session_id)) = Self::extract_session_info(path) {
+                    // Extract session ID from filename (always succeeds unless malformed)
+                    if let Some(session_id) = Self::extract_session_id_from_filename(path) {
+                        // Extract project name from file content (fallback to "unknown")
+                        let project_name = Self::extract_project_name_from_file(path);
+
                         // Get file size
                         let file_size = Self::get_file_size(path).unwrap_or(0);
+
+                        let is_new = Self::is_new_session(&session_id, path, session_states);
 
                         return Some(FileChangeEvent {
                             path: path.clone(),
@@ -275,8 +389,16 @@ impl CodexWatcher {
                             last_modified: Instant::now(),
                             file_size,
                             session_id: session_id.clone(),
-                            is_new_session: Self::is_new_session(&session_id, path, session_states),
+                            is_new_session: is_new,
                         });
+                    } else {
+                        // Only log if extraction truly failed
+                        if let Err(e) = log_error(
+                            PROVIDER_ID,
+                            &format!("❌ Failed to extract session ID from filename: {}", path.display()),
+                        ) {
+                            eprintln!("Logging error: {}", e);
+                        }
                     }
                 }
             }
@@ -286,48 +408,103 @@ impl CodexWatcher {
         None
     }
 
-    fn extract_session_info(file_path: &Path) -> Option<(String, String)> {
-        // Read first line to get session metadata
-        use std::fs::File;
-        use std::io::{BufRead, BufReader};
+    fn extract_session_id_from_filename(file_path: &Path) -> Option<String> {
+        // Codex filename format: rollout-2025-10-06T22-15-35-{SESSION_ID}.jsonl
+        // Session ID format: 8-4-4-4-12 hex digits (e.g., 0199bb2a-4c23-76b1-bfb0-2d78295c0f29)
 
-        let file = File::open(file_path).ok()?;
-        let reader = BufReader::new(file);
-        let first_line = reader.lines().next()?.ok()?;
+        // First try to extract from filename
+        if let Some(file_name) = file_path.file_stem().and_then(|s| s.to_str()) {
+            // Look for the timestamp pattern (YYYY-MM-DDTHH-MM-SS-) and extract everything after it
+            // The timestamp is always in the format: 2025-10-06T22-15-35-
+            // Find the part after the last 'T' followed by time digits
+            let parts: Vec<&str> = file_name.split('-').collect();
 
-        #[derive(Deserialize)]
-        struct SessionMeta {
-            #[serde(rename = "type")]
-            entry_type: Option<String>,
-            payload: Option<SessionPayload>,
-        }
-
-        #[derive(Deserialize)]
-        struct SessionPayload {
-            id: Option<String>,
-            cwd: Option<String>,
-        }
-
-        let meta: SessionMeta = serde_json::from_str(&first_line).ok()?;
-
-        // Check if this is a session_meta entry
-        if meta.entry_type.as_deref() == Some("session_meta") {
-            if let Some(payload) = meta.payload {
-                let session_id = payload.id?;
-                let cwd = payload.cwd?;
-
-                // Extract project name from cwd path
-                let project_name = Path::new(&cwd)
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("unknown")
-                    .to_string();
-
-                return Some((project_name, session_id));
+            // Find where the session ID starts (after the timestamp)
+            // Session ID is 5 segments: 8-4-4-4-12 (36 chars total with dashes)
+            if parts.len() >= 5 {
+                // Try to find 5 consecutive segments that look like a UUID
+                for i in 0..=parts.len().saturating_sub(5) {
+                    let potential_uuid = format!(
+                        "{}-{}-{}-{}-{}",
+                        parts[i], parts[i + 1], parts[i + 2], parts[i + 3], parts[i + 4]
+                    );
+                    // Check if it looks like a valid UUID (36 chars, hex digits)
+                    if potential_uuid.len() == 36
+                        && potential_uuid.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+                    {
+                        return Some(potential_uuid);
+                    }
+                }
             }
         }
 
+        // Fallback: Try to read session ID from JSON content
+        Self::extract_session_id_from_json(file_path)
+    }
+
+    fn extract_session_id_from_json(file_path: &Path) -> Option<String> {
+        use std::fs::File;
+        use std::io::{BufRead, BufReader};
+
+        if let Ok(file) = File::open(file_path) {
+            let reader = BufReader::new(file);
+            // Check first few lines for session_meta entry
+            for line in reader.lines().take(10) {
+                if let Ok(line_content) = line {
+                    if let Ok(entry) = serde_json::from_str::<serde_json::Value>(&line_content) {
+                        // Check for sessionId field (Codex format)
+                        if let Some(session_id) = entry.get("sessionId").and_then(|v| v.as_str()) {
+                            return Some(session_id.to_string());
+                        }
+                        // Also check payload.id (alternative format)
+                        if let Some(payload) = entry.get("payload") {
+                            if let Some(id) = payload.get("id").and_then(|v| v.as_str()) {
+                                return Some(id.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Log error only if all extraction methods failed
+        let _ = log_error(
+            PROVIDER_ID,
+            &format!("❌ Failed to extract session ID from: {}", file_path.display()),
+        );
+
         None
+    }
+
+    fn extract_project_name_from_file(file_path: &Path) -> String {
+        // Try to read first line to get project name from cwd
+        use std::fs::File;
+        use std::io::{BufRead, BufReader};
+
+        if let Ok(file) = File::open(file_path) {
+            let reader = BufReader::new(file);
+            // Check first few lines (in case session_meta isn't first)
+            for line_result in reader.lines().take(10) {
+                if let Ok(line_content) = line_result {
+                    if let Ok(entry) = serde_json::from_str::<serde_json::Value>(&line_content) {
+                        // Try to find CWD from various locations in the JSON
+                        let cwd = entry.get("cwd").and_then(|v| v.as_str())
+                            .or_else(|| entry.get("payload").and_then(|p| p.get("cwd")).and_then(|v| v.as_str()));
+
+                        if let Some(cwd_path) = cwd {
+                            return Path::new(cwd_path)
+                                .file_name()
+                                .and_then(|name| name.to_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback to "unknown" if we can't read the file or find CWD
+        "unknown".to_string()
     }
 
     fn get_file_size(path: &Path) -> Result<u64, std::io::Error> {
@@ -337,24 +514,12 @@ impl CodexWatcher {
 
     fn is_new_session(
         session_id: &str,
-        path: &Path,
+        _path: &Path,
         session_states: &HashMap<String, SessionState>,
     ) -> bool {
-        // First check if we've already seen this session
-        if session_states.contains_key(session_id) {
-            return false; // Already tracking this session
-        }
-
-        // Check if this session file is new by looking at file size
-        // A new session typically starts with a small file size
-        if let Ok(metadata) = std::fs::metadata(path) {
-            let file_size = metadata.len();
-            // Consider it a new session if file is small (less than 5KB)
-            // This indicates it's just starting
-            file_size < 5120
-        } else {
-            true // If we can't read metadata, assume it's new
-        }
+        // A session is considered new if we haven't seen it before
+        // We don't check file size because sessions can grow quickly
+        !session_states.contains_key(session_id)
     }
 
     fn should_log_event(
@@ -394,14 +559,14 @@ impl CodexWatcher {
                 if existing_state.upload_pending {
                     let should_allow_reupload =
                         if let Some(last_uploaded_time) = existing_state.last_uploaded_time {
-                            // Check if cooldown has elapsed OR size changed significantly
+                            // Check if cooldown has elapsed OR size changed significantly since last upload
                             let cooldown_elapsed =
                                 file_event.last_modified.duration_since(last_uploaded_time)
                                     >= RE_UPLOAD_COOLDOWN;
-                            let size_changed_significantly = file_event
+                            let size_since_upload = file_event
                                 .file_size
-                                .saturating_sub(existing_state.last_uploaded_size)
-                                >= MIN_SIZE_CHANGE_BYTES;
+                                .saturating_sub(existing_state.last_uploaded_size);
+                            let size_changed_significantly = size_since_upload >= MIN_SIZE_CHANGE_BYTES;
 
                             cooldown_elapsed || size_changed_significantly
                         } else {
@@ -477,27 +642,18 @@ mod tests {
 
     #[test]
     fn test_is_new_session() {
-        use std::fs;
-        use tempfile::tempdir;
-
-        let temp_dir = tempdir().unwrap();
-        let file_path = temp_dir.path().join("test-session.jsonl");
         let session_id = "test-session";
         let mut session_states = HashMap::new();
+        let dummy_path = std::path::Path::new("dummy.jsonl");
 
-        // Create a small file - should be considered new
-        fs::write(
-            &file_path,
-            r#"{"timestamp":"2025-01-01T10:00:00.000Z","type":"session_meta"}"#,
-        )
-        .unwrap();
+        // Session not in states - should be considered new
         assert!(CodexWatcher::is_new_session(
             session_id,
-            &file_path,
+            dummy_path,
             &session_states
         ));
 
-        // Add session to states - should not be considered new even if file is small
+        // Add session to states - should not be considered new
         session_states.insert(
             session_id.to_string(),
             SessionState {
@@ -511,8 +667,15 @@ mod tests {
         );
         assert!(!CodexWatcher::is_new_session(
             session_id,
-            &file_path,
+            dummy_path,
             &session_states
         ));
+    }
+
+    #[test]
+    fn test_extract_session_id_from_filename() {
+        let path = std::path::Path::new("/Users/user/.codex/sessions/2025/10/06/rollout-2025-10-06T22-15-35-0199bb2a-4c23-76b1-bfb0-2d78295c0f29.jsonl");
+        let session_id = CodexWatcher::extract_session_id_from_filename(path);
+        assert_eq!(session_id, Some("0199bb2a-4c23-76b1-bfb0-2d78295c0f29".to_string()));
     }
 }

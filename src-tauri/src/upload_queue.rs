@@ -2,7 +2,7 @@ use crate::config::GuideAIConfig;
 use crate::database::{get_unsynced_sessions, mark_session_sync_failed, mark_session_synced};
 use crate::logging::{log_debug, log_error, log_info, log_warn};
 use crate::project_metadata::ProjectMetadata;
-use crate::providers::{OpenCodeParser, SessionInfo};
+use crate::providers::SessionInfo;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -1101,40 +1101,14 @@ impl UploadQueue {
             item.project_name.clone()
         };
 
-        // Get content - handle provider-specific logic
+        // Get content - all providers now use file paths (OpenCode uses cached JSONL)
         let encoded_content = if let Some(ref content) = item.content {
-            // Use in-memory content (already text, encode as base64)
+            // Use in-memory content if available (legacy path, rarely used)
             use base64::Engine;
             base64::engine::general_purpose::STANDARD.encode(content.as_bytes())
-        } else if item.provider == "opencode" {
-            // OpenCode: Parse and consolidate distributed files into single JSONL
-            use crate::config::load_provider_config;
-            use shellexpand::tilde;
-
-            let provider_config = load_provider_config("opencode")
-                .map_err(|e| format!("Failed to load OpenCode config: {}", e))?;
-
-            let storage_path =
-                PathBuf::from(tilde(&provider_config.home_directory).as_ref()).join("storage");
-            let parser = OpenCodeParser::new(storage_path);
-
-            // Extract session ID from item
-            let session_id = item
-                .session_id
-                .as_ref()
-                .ok_or("OpenCode session missing session_id")?;
-
-            // Parse session to consolidate files
-            let parsed_session = parser
-                .parse_session(session_id)
-                .map_err(|e| format!("Failed to parse OpenCode session: {}", e))?;
-
-            // Use consolidated JSONL content
-            use base64::Engine;
-            base64::engine::general_purpose::STANDARD
-                .encode(parsed_session.jsonl_content.as_bytes())
         } else {
-            // Claude Code, Codex: Read file content directly
+            // All providers: Read file content directly from cached JSONL
+            // OpenCode sessions are now cached at ~/.guideai/cache/opencode/{session_id}.jsonl
             let file_content = std::fs::read(&item.file_path)
                 .map_err(|e| format!("Failed to read file: {}", e))?;
 

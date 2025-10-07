@@ -22,6 +22,9 @@ export default defineConfig({
       "@guideai/types": path.resolve(__dirname, "../../packages/types/src"),
     },
   },
+  test: {
+    environment: "jsdom",
+  },
   clearScreen: false,
   envPrefix: ["VITE_", "TAURI_"],
 });

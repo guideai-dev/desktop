@@ -1,18 +1,22 @@
 use super::opencode_parser::OpenCodeParser;
 use crate::config::load_provider_config;
-use crate::logging::{log_debug, log_error, log_info};
+use crate::logging::{log_error, log_info};
 use crate::providers::db_helpers::insert_session_immediately;
 use crate::upload_queue::UploadQueue;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use shellexpand::tilde;
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 const PROVIDER_ID: &str = "opencode";
+
+// Debounce: aggregate session after this much inactivity
+const AGGREGATION_DEBOUNCE: Duration = Duration::from_secs(2);
 
 // Minimum time between re-uploads to prevent spam
 #[cfg(debug_assertions)]
@@ -41,6 +45,9 @@ pub struct SessionState {
     pub last_uploaded_time: Option<Instant>,
     #[allow(dead_code)]
     pub last_uploaded_size: usize,
+    pub needs_aggregation: bool, // True when session has changes that haven't been aggregated
+    pub project_id: String,      // Needed for aggregation
+    pub last_aggregated: Option<Instant>, // When we last created the virtual JSONL
 }
 
 #[derive(Debug)]
@@ -165,6 +172,50 @@ impl OpenCodeWatcher {
         })
     }
 
+    /// Aggregate session into virtual JSONL and write to cache
+    /// Returns (jsonl_path, project_name)
+    fn aggregate_session(
+        parser: &OpenCodeParser,
+        session_id: &str,
+        project_id: &str,
+    ) -> Result<(PathBuf, String), Box<dyn std::error::Error + Send + Sync>> {
+        // Create cache directory if it doesn't exist
+        let cache_dir = dirs::home_dir()
+            .ok_or("Could not find home directory")?
+            .join(".guideai")
+            .join("cache")
+            .join("opencode");
+
+        fs::create_dir_all(&cache_dir)?;
+
+        // Parse session to create virtual JSONL
+        let parsed_session = parser.parse_session(session_id).map_err(|e| {
+            format!("Failed to parse OpenCode session {}: {}", session_id, e)
+        })?;
+
+        // Write virtual JSONL to cache
+        let jsonl_path = cache_dir.join(format!("{}.jsonl", session_id));
+        fs::write(&jsonl_path, &parsed_session.jsonl_content)?;
+
+        // Extract real project name from parsed session (not the GUID)
+        let project_name = parsed_session.project_name.clone();
+
+        if let Err(e) = log_info(
+            PROVIDER_ID,
+            &format!(
+                "📝 Aggregated session {} → {} ({} bytes, project: {})",
+                session_id,
+                jsonl_path.display(),
+                parsed_session.jsonl_content.len(),
+                project_name
+            ),
+        ) {
+            eprintln!("Logging error: {}", e);
+        }
+
+        Ok((jsonl_path, project_name))
+    }
+
     fn discover_all_projects(
         parser: &OpenCodeParser,
     ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
@@ -206,8 +257,8 @@ impl OpenCodeWatcher {
                 }
             }
 
-            // Process file system events with timeout
-            match rx.recv_timeout(Duration::from_secs(5)) {
+            // Process file system events with short timeout for debouncing
+            match rx.recv_timeout(Duration::from_millis(500)) {
                 Ok(Ok(event)) => {
                     if let Some(session_event) = Self::process_file_event(
                         &event,
@@ -216,53 +267,8 @@ impl OpenCodeWatcher {
                         &projects_to_watch,
                         &session_states,
                     ) {
-                        // Check if this is a new session or significant change
-                        let should_log = Self::should_log_event(&session_event, &session_states);
-
-                        // INSERT TO DATABASE IMMEDIATELY (no debounce)
-                        // Use first affected file for path/size tracking
-                        if let Some(first_file) = session_event.affected_files.first() {
-                            let file_size = first_file.metadata().map(|m| m.len()).unwrap_or(0);
-
-                            if let Err(e) = insert_session_immediately(
-                                PROVIDER_ID,
-                                &session_event.project_id,
-                                &session_event.session_id,
-                                first_file,
-                                file_size,
-                            ) {
-                                if let Err(log_err) = log_error(
-                                    PROVIDER_ID,
-                                    &format!("Failed to insert session to database: {}", e),
-                                ) {
-                                    eprintln!("Logging error: {}", log_err);
-                                }
-                            }
-                        }
-
-                        // Update session state immediately to prevent duplicate events
-                        Self::update_session_state(&mut session_states, &session_event);
-
-                        if should_log {
-                            if session_event.is_new_session {
-                                let log_message = format!(
-                                    "🆕 New OpenCode session detected: {} (project: {}) → Saved to database",
-                                    session_event.session_id, session_event.project_id
-                                );
-                                if let Err(e) = log_info(PROVIDER_ID, &log_message) {
-                                    eprintln!("Logging error: {}", e);
-                                }
-                            } else {
-                                // Use debug level for routine session activity
-                                let log_message = format!(
-                                    "📝 OpenCode session active: {} (project: {})",
-                                    session_event.session_id, session_event.project_id
-                                );
-                                if let Err(e) = log_debug(PROVIDER_ID, &log_message) {
-                                    eprintln!("Logging error: {}", e);
-                                }
-                            }
-                        }
+                        // PHASE 1: WATCH - Just mark session as needing aggregation
+                        Self::mark_session_for_aggregation(&mut session_states, &session_event);
                     }
                 }
                 Ok(Err(error)) => {
@@ -274,7 +280,7 @@ impl OpenCodeWatcher {
                     }
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
-                    // Timeout is normal, continue watching
+                    // Timeout is normal - use it to check for sessions ready to aggregate
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
                     if let Err(e) =
@@ -283,6 +289,58 @@ impl OpenCodeWatcher {
                         eprintln!("Logging error: {}", e);
                     }
                     break;
+                }
+            }
+
+            // PHASE 2 & 3: AGGREGATE & PROCESS
+            // Check for sessions that have been idle for AGGREGATION_DEBOUNCE
+            let now = Instant::now();
+            let sessions_to_aggregate: Vec<(String, String)> = session_states
+                .iter()
+                .filter(|(_, state)| {
+                    state.needs_aggregation
+                        && now.duration_since(state.last_modified) >= AGGREGATION_DEBOUNCE
+                })
+                .map(|(session_id, state)| (session_id.clone(), state.project_id.clone()))
+                .collect();
+
+            for (session_id, project_id) in sessions_to_aggregate {
+                // Aggregate session into virtual JSONL
+                match Self::aggregate_session(&parser, &session_id, &project_id) {
+                    Ok((jsonl_path, project_name)) => {
+                        // Get file size
+                        let file_size = jsonl_path.metadata().map(|m| m.len()).unwrap_or(0);
+
+                        // Insert/update database with virtual JSONL path and real project name
+                        if let Err(e) = insert_session_immediately(
+                            PROVIDER_ID,
+                            &project_name,  // Use real project name, not GUID
+                            &session_id,
+                            &jsonl_path,
+                            file_size,
+                        ) {
+                            if let Err(log_err) = log_error(
+                                PROVIDER_ID,
+                                &format!("Failed to save session to database: {}", e),
+                            ) {
+                                eprintln!("Logging error: {}", log_err);
+                            }
+                        } else {
+                            // Mark as aggregated
+                            if let Some(state) = session_states.get_mut(&session_id) {
+                                state.needs_aggregation = false;
+                                state.last_aggregated = Some(now);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        if let Err(log_err) = log_error(
+                            PROVIDER_ID,
+                            &format!("Failed to aggregate session {}: {}", session_id, e),
+                        ) {
+                            eprintln!("Logging error: {}", log_err);
+                        }
+                    }
                 }
             }
         }
@@ -462,6 +520,35 @@ impl OpenCodeWatcher {
         }
     }
 
+    /// Mark a session as needing aggregation (Phase 1: Watch)
+    fn mark_session_for_aggregation(
+        session_states: &mut HashMap<String, SessionState>,
+        event: &SessionChangeEvent,
+    ) {
+        let now = Instant::now();
+
+        session_states
+            .entry(event.session_id.clone())
+            .and_modify(|state| {
+                state.last_modified = now;
+                state.needs_aggregation = true;
+                for file in &event.affected_files {
+                    state.affected_files.insert(file.clone());
+                }
+            })
+            .or_insert_with(|| SessionState {
+                last_modified: now,
+                is_active: true,
+                upload_pending: false,
+                affected_files: event.affected_files.iter().cloned().collect(),
+                last_uploaded_time: None,
+                last_uploaded_size: 0,
+                needs_aggregation: true,
+                project_id: event.project_id.clone(),
+                last_aggregated: None,
+            });
+    }
+
     fn update_session_state(
         session_states: &mut HashMap<String, SessionState>,
         session_event: &SessionChangeEvent,
@@ -517,6 +604,9 @@ impl OpenCodeWatcher {
                     affected_files,
                     last_uploaded_time: None,
                     last_uploaded_size: 0,
+                    needs_aggregation: false,
+                    project_id: session_event.project_id.clone(),
+                    last_aggregated: None,
                 };
                 session_states.insert(session_event.session_id.clone(), session_state);
             }

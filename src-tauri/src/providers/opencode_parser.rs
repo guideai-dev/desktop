@@ -16,6 +16,7 @@ pub struct OpenCodeTime {
     pub created: Option<i64>,
     pub initialized: Option<i64>,
     pub updated: Option<i64>,
+    pub completed: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,6 +109,8 @@ pub struct OpenCodeJsonLEntry {
     #[serde(rename = "type")]
     pub entry_type: String,
     pub message: OpenCodeJsonLMessage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -188,6 +191,7 @@ impl OpenCodeParser {
             .project_id
             .ok_or_else(|| format!("Session {} has no project ID", session_id))?;
         let project = self.load_project(&project_id)?;
+        let cwd = Some(project.worktree.clone());
 
         // Load all messages for this session
         let messages = self.load_messages_for_session(session_id)?;
@@ -214,6 +218,7 @@ impl OpenCodeParser {
             let base_timestamp = message
                 .time
                 .created
+                .or(message.time.completed) // Messages use 'completed' not 'initialized/updated'
                 .or(message.time.initialized)
                 .or(message.time.updated)
                 .and_then(|ts| DateTime::from_timestamp_millis(ts))
@@ -262,6 +267,7 @@ impl OpenCodeParser {
                                             .unwrap_or(serde_json::Value::Null),
                                     }],
                                 },
+                                cwd: cwd.clone(),
                             };
                             session_entries.push((part_timestamp, tool_use_entry));
 
@@ -289,6 +295,7 @@ impl OpenCodeParser {
                                             is_error: Some(state.status != "completed"),
                                         }],
                                     },
+                                    cwd: cwd.clone(),
                                 };
                                 session_entries.push((result_timestamp, tool_result_entry));
                             }
@@ -352,6 +359,7 @@ impl OpenCodeParser {
                         role: message.role,
                         content: text_content,
                     },
+                    cwd: cwd.clone(),
                 };
 
                 session_entries.push((base_timestamp, entry));
@@ -562,6 +570,7 @@ impl OpenCodeParser {
         messages.sort_by_key(|msg| {
             msg.time
                 .created
+                .or(msg.time.completed)
                 .or(msg.time.initialized)
                 .or(msg.time.updated)
                 .unwrap_or(0)
@@ -600,25 +609,40 @@ impl OpenCodeParser {
     }
 
     pub fn get_session_for_part(&self, part_path: &Path) -> Option<String> {
-        // Extract session ID from part path
+        // Extract message ID from part path
         // Path format: ~/.local/share/opencode/storage/part/{messageId}/{partId}.json
-        if let Some(message_id) = part_path
+        let message_id = part_path
             .parent()
             .and_then(|p| p.file_name())
-            .and_then(|n| n.to_str())
-        {
-            // Load the message to get session ID
-            if let Ok(content) = fs::read_to_string(
-                self.storage_path
-                    .join("message")
-                    .join(message_id)
-                    .join(format!("{}.json", message_id)),
-            ) {
-                if let Ok(message) = serde_json::from_str::<OpenCodeMessage>(&content) {
-                    return Some(message.session_id);
+            .and_then(|n| n.to_str())?;
+
+        // Messages are stored in: storage/message/{sessionId}/{messageId}.json
+        // We need to scan session directories to find which one contains this messageId
+        let message_base_dir = self.storage_path.join("message");
+
+        if !message_base_dir.exists() {
+            return None;
+        }
+
+        // Iterate through session directories
+        if let Ok(entries) = fs::read_dir(&message_base_dir) {
+            for entry in entries.flatten() {
+                let session_dir = entry.path();
+                if session_dir.is_dir() {
+                    let message_file = session_dir.join(format!("{}.json", message_id));
+
+                    if message_file.exists() {
+                        // Found the message file - read it to get the session ID
+                        if let Ok(content) = fs::read_to_string(&message_file) {
+                            if let Ok(message) = serde_json::from_str::<OpenCodeMessage>(&content) {
+                                return Some(message.session_id);
+                            }
+                        }
+                    }
                 }
             }
         }
+
         None
     }
 
@@ -736,5 +760,99 @@ mod tests {
 
         assert_eq!(projects.len(), 1);
         assert_eq!(projects[0].id, "test_project");
+    }
+
+    #[test]
+    fn test_message_timestamp_with_completed_field() {
+        let temp_dir = tempdir().unwrap();
+        let storage_path = temp_dir.path().join("storage");
+
+        fs::create_dir_all(storage_path.join("project")).unwrap();
+        fs::create_dir_all(storage_path.join("session").join("test_project")).unwrap();
+        fs::create_dir_all(storage_path.join("message").join("test_session")).unwrap();
+        fs::create_dir_all(storage_path.join("part").join("test_message")).unwrap();
+
+        // Create project
+        let project = r#"{"id":"test_project","worktree":"/path/to/project","time":{"created":1000000000000}}"#;
+        fs::write(
+            storage_path.join("project").join("test_project.json"),
+            project,
+        )
+        .unwrap();
+
+        // Create session
+        let session = r#"{"id":"test_session","projectID":"test_project","time":{"created":1000000000000}}"#;
+        fs::write(
+            storage_path
+                .join("session")
+                .join("test_project")
+                .join("test_session.json"),
+            session,
+        )
+        .unwrap();
+
+        // Create message with 'completed' timestamp (not 'updated')
+        let message = r#"{"id":"test_message","role":"assistant","sessionID":"test_session","time":{"created":1000000000000,"completed":1000000001000}}"#;
+        fs::write(
+            storage_path
+                .join("message")
+                .join("test_session")
+                .join("test_message.json"),
+            message,
+        )
+        .unwrap();
+
+        // Create part
+        let part = r#"{"id":"test_part","type":"text","text":"Test message","messageID":"test_message","sessionID":"test_session"}"#;
+        fs::write(
+            storage_path
+                .join("part")
+                .join("test_message")
+                .join("test_part.json"),
+            part,
+        )
+        .unwrap();
+
+        let parser = OpenCodeParser::new(storage_path);
+        let result = parser.parse_session("test_session").unwrap();
+
+        // Should have proper timestamps from 'completed' field
+        assert!(result.session_start_time.is_some());
+        assert!(result.jsonl_content.contains("2001-09-09")); // Timestamp should be from 'completed' field
+    }
+
+    #[test]
+    fn test_get_session_for_part_correct_path() {
+        let temp_dir = tempdir().unwrap();
+        let storage_path = temp_dir.path().join("storage");
+
+        fs::create_dir_all(storage_path.join("message").join("ses_123")).unwrap();
+        fs::create_dir_all(storage_path.join("part").join("msg_456")).unwrap();
+
+        // Create message file in correct location: message/{sessionId}/{messageId}.json
+        let message = r#"{"id":"msg_456","role":"user","sessionID":"ses_123","time":{"created":1000000000000}}"#;
+        fs::write(
+            storage_path.join("message").join("ses_123").join("msg_456.json"),
+            message,
+        )
+        .unwrap();
+
+        let parser = OpenCodeParser::new(storage_path.clone());
+        let part_path = storage_path.join("part").join("msg_456").join("part_789.json");
+
+        let session_id = parser.get_session_for_part(&part_path);
+
+        assert_eq!(session_id, Some("ses_123".to_string()));
+    }
+
+    #[test]
+    fn test_jsonl_includes_cwd_field() {
+        let (_temp_dir, parser) = create_test_opencode_structure();
+
+        let result = parser.parse_session("test_session").unwrap();
+
+        // Check that JSONL contains cwd field
+        assert!(result.jsonl_content.contains("\"cwd\""));
+        assert!(result.jsonl_content.contains("/path/to/project"));
     }
 }
