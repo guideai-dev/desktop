@@ -91,6 +91,10 @@ export async function insertSessionMetrics(
       used_plan_mode, used_todo_tracking, over_top_affirmations,
       successful_operations, total_operations, exit_plan_mode_count, todo_write_count,
       over_top_affirmations_phrases, improvement_tips, custom_metrics,
+      git_total_files_changed, git_lines_added, git_lines_removed, git_lines_modified,
+      git_net_lines_changed, git_lines_read_per_line_changed, git_reads_per_file_changed,
+      git_lines_changed_per_minute, git_lines_changed_per_tool_use, total_lines_read,
+      git_diff_improvement_tips,
       created_at
     ) VALUES (
       ?, ?, ?, ?,
@@ -102,6 +106,10 @@ export async function insertSessionMetrics(
       ?, ?, ?,
       ?, ?, ?, ?,
       ?, ?, ?,
+      ?, ?, ?, ?,
+      ?, ?, ?,
+      ?, ?, ?,
+      ?,
       ?
     )
   `
@@ -141,6 +149,17 @@ export async function insertSessionMetrics(
     metrics.overTopAffirmationsPhrases ? JSON.stringify(metrics.overTopAffirmationsPhrases) : null,
     metrics.improvementTips ? JSON.stringify(metrics.improvementTips) : null,
     metrics.customMetrics ? JSON.stringify(metrics.customMetrics) : null,
+    metrics.gitTotalFilesChanged || null,
+    metrics.gitLinesAdded || null,
+    metrics.gitLinesRemoved || null,
+    metrics.gitLinesModified || null,
+    metrics.gitNetLinesChanged || null,
+    metrics.gitLinesReadPerLineChanged || null,
+    metrics.gitReadsPerFileChanged || null,
+    metrics.gitLinesChangedPerMinute || null,
+    metrics.gitLinesChangedPerToolUse || null,
+    metrics.totalLinesRead || null,
+    metrics.gitDiffImprovementTips ? JSON.stringify(metrics.gitDiffImprovementTips) : null,
     now,
   ])
 

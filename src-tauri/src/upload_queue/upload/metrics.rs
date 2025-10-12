@@ -173,48 +173,69 @@ pub async fn upload_session_metrics(
         })
     };
 
-    // Prepare metrics upload request
+    // Build metrics object in parts to avoid macro recursion limit
+    let mut metrics_obj = serde_json::Map::new();
+
+    // Session identifiers
+    metrics_obj.insert("sessionId".to_string(), serde_json::json!(metrics.session_id));
+    metrics_obj.insert("provider".to_string(), serde_json::json!(metrics.provider));
+
+    // Performance metrics
+    metrics_obj.insert("responseLatencyMs".to_string(), serde_json::json!(metrics.response_latency_ms));
+    metrics_obj.insert("taskCompletionTimeMs".to_string(), serde_json::json!(metrics.task_completion_time_ms));
+    metrics_obj.insert("performanceTotalResponses".to_string(), serde_json::json!(metrics.performance_total_responses));
+
+    // Usage metrics
+    metrics_obj.insert("readWriteRatio".to_string(), serde_json::json!(metrics.read_write_ratio));
+    metrics_obj.insert("inputClarityScore".to_string(), serde_json::json!(metrics.input_clarity_score));
+    metrics_obj.insert("readOperations".to_string(), serde_json::json!(metrics.read_operations));
+    metrics_obj.insert("writeOperations".to_string(), serde_json::json!(metrics.write_operations));
+    metrics_obj.insert("totalUserMessages".to_string(), serde_json::json!(metrics.total_user_messages));
+
+    // Error metrics
+    metrics_obj.insert("errorCount".to_string(), serde_json::json!(metrics.error_count));
+    metrics_obj.insert("errorTypes".to_string(), serde_json::json!(parse_array(&metrics.error_types)));
+    metrics_obj.insert("lastErrorMessage".to_string(), serde_json::json!(metrics.last_error_message));
+    metrics_obj.insert("recoveryAttempts".to_string(), serde_json::json!(metrics.recovery_attempts));
+    metrics_obj.insert("fatalErrors".to_string(), serde_json::json!(metrics.fatal_errors));
+
+    // Engagement metrics
+    metrics_obj.insert("interruptionRate".to_string(), serde_json::json!(metrics.interruption_rate));
+    metrics_obj.insert("sessionLengthMinutes".to_string(), serde_json::json!(metrics.session_length_minutes));
+    metrics_obj.insert("totalInterruptions".to_string(), serde_json::json!(metrics.total_interruptions));
+    metrics_obj.insert("engagementTotalResponses".to_string(), serde_json::json!(metrics.engagement_total_responses));
+
+    // Quality metrics
+    metrics_obj.insert("taskSuccessRate".to_string(), serde_json::json!(metrics.task_success_rate));
+    metrics_obj.insert("iterationCount".to_string(), serde_json::json!(metrics.iteration_count));
+    metrics_obj.insert("processQualityScore".to_string(), serde_json::json!(metrics.process_quality_score));
+    metrics_obj.insert("usedPlanMode".to_string(), serde_json::json!(metrics.used_plan_mode));
+    metrics_obj.insert("usedTodoTracking".to_string(), serde_json::json!(metrics.used_todo_tracking));
+    metrics_obj.insert("overTopAffirmations".to_string(), serde_json::json!(metrics.over_top_affirmations));
+    metrics_obj.insert("successfulOperations".to_string(), serde_json::json!(metrics.successful_operations));
+    metrics_obj.insert("totalOperations".to_string(), serde_json::json!(metrics.total_operations));
+    metrics_obj.insert("exitPlanModeCount".to_string(), serde_json::json!(metrics.exit_plan_mode_count));
+    metrics_obj.insert("todoWriteCount".to_string(), serde_json::json!(metrics.todo_write_count));
+    metrics_obj.insert("overTopAffirmationsPhrases".to_string(), serde_json::json!(parse_array(&metrics.over_top_affirmations_phrases)));
+    metrics_obj.insert("improvementTips".to_string(), serde_json::json!(parse_array(&metrics.improvement_tips)));
+
+    // Git diff metrics (desktop-only)
+    metrics_obj.insert("gitTotalFilesChanged".to_string(), serde_json::json!(metrics.git_total_files_changed));
+    metrics_obj.insert("gitLinesAdded".to_string(), serde_json::json!(metrics.git_lines_added));
+    metrics_obj.insert("gitLinesRemoved".to_string(), serde_json::json!(metrics.git_lines_removed));
+    metrics_obj.insert("gitLinesModified".to_string(), serde_json::json!(metrics.git_lines_modified));
+    metrics_obj.insert("gitNetLinesChanged".to_string(), serde_json::json!(metrics.git_net_lines_changed));
+    metrics_obj.insert("gitLinesReadPerLineChanged".to_string(), serde_json::json!(metrics.git_lines_read_per_line_changed));
+    metrics_obj.insert("gitReadsPerFileChanged".to_string(), serde_json::json!(metrics.git_reads_per_file_changed));
+    metrics_obj.insert("gitLinesChangedPerMinute".to_string(), serde_json::json!(metrics.git_lines_changed_per_minute));
+    metrics_obj.insert("gitLinesChangedPerToolUse".to_string(), serde_json::json!(metrics.git_lines_changed_per_tool_use));
+    metrics_obj.insert("totalLinesRead".to_string(), serde_json::json!(metrics.total_lines_read));
+
+    // Custom metrics
+    metrics_obj.insert("customMetrics".to_string(), serde_json::json!(metrics.custom_metrics.as_ref().and_then(|s| serde_json::from_str::<Value>(s).ok())));
+
     let metrics_request = serde_json::json!({
-        "metrics": [{
-            "sessionId": metrics.session_id,
-            "provider": metrics.provider,
-            // Performance metrics
-            "responseLatencyMs": metrics.response_latency_ms,
-            "taskCompletionTimeMs": metrics.task_completion_time_ms,
-            "performanceTotalResponses": metrics.performance_total_responses,
-            // Usage metrics
-            "readWriteRatio": metrics.read_write_ratio,
-            "inputClarityScore": metrics.input_clarity_score,
-            "readOperations": metrics.read_operations,
-            "writeOperations": metrics.write_operations,
-            "totalUserMessages": metrics.total_user_messages,
-            // Error metrics
-            "errorCount": metrics.error_count,
-            "errorTypes": parse_array(&metrics.error_types),
-            "lastErrorMessage": metrics.last_error_message,
-            "recoveryAttempts": metrics.recovery_attempts,
-            "fatalErrors": metrics.fatal_errors,
-            // Engagement metrics
-            "interruptionRate": metrics.interruption_rate,
-            "sessionLengthMinutes": metrics.session_length_minutes,
-            "totalInterruptions": metrics.total_interruptions,
-            "engagementTotalResponses": metrics.engagement_total_responses,
-            // Quality metrics
-            "taskSuccessRate": metrics.task_success_rate,
-            "iterationCount": metrics.iteration_count,
-            "processQualityScore": metrics.process_quality_score,
-            "usedPlanMode": metrics.used_plan_mode,
-            "usedTodoTracking": metrics.used_todo_tracking,
-            "overTopAffirmations": metrics.over_top_affirmations,
-            "successfulOperations": metrics.successful_operations,
-            "totalOperations": metrics.total_operations,
-            "exitPlanModeCount": metrics.exit_plan_mode_count,
-            "todoWriteCount": metrics.todo_write_count,
-            "overTopAffirmationsPhrases": parse_array(&metrics.over_top_affirmations_phrases),
-            "improvementTips": parse_array(&metrics.improvement_tips),
-            // Custom metrics
-            "customMetrics": metrics.custom_metrics.as_ref().and_then(|s| serde_json::from_str::<Value>(s).ok()),
-        }]
+        "metrics": [metrics_obj]
     });
 
     // Upload metrics

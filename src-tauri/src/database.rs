@@ -996,6 +996,17 @@ pub struct SessionMetrics {
     pub over_top_affirmations_phrases: Option<String>,
     pub improvement_tips: Option<String>,
     pub custom_metrics: Option<String>,
+    // Git diff metrics (desktop-only)
+    pub git_total_files_changed: Option<i64>,
+    pub git_lines_added: Option<i64>,
+    pub git_lines_removed: Option<i64>,
+    pub git_lines_modified: Option<i64>,
+    pub git_net_lines_changed: Option<i64>,
+    pub git_lines_read_per_line_changed: Option<f64>,
+    pub git_reads_per_file_changed: Option<f64>,
+    pub git_lines_changed_per_minute: Option<f64>,
+    pub git_lines_changed_per_tool_use: Option<f64>,
+    pub total_lines_read: Option<i64>,
 }
 
 /// Clear all failed sessions from the database
@@ -1091,7 +1102,10 @@ pub fn get_session_metrics(session_id: &str) -> Result<Option<SessionMetrics>> {
                     task_success_rate, iteration_count, process_quality_score,
                     used_plan_mode, used_todo_tracking, over_top_affirmations,
                     successful_operations, total_operations, exit_plan_mode_count, todo_write_count,
-                    over_top_affirmations_phrases, improvement_tips, custom_metrics
+                    over_top_affirmations_phrases, improvement_tips, custom_metrics,
+                    git_total_files_changed, git_lines_added, git_lines_removed, git_lines_modified,
+                    git_net_lines_changed, git_lines_read_per_line_changed, git_reads_per_file_changed,
+                    git_lines_changed_per_minute, git_lines_changed_per_tool_use, total_lines_read
              FROM session_metrics
              WHERE session_id = ?
              ORDER BY created_at DESC
@@ -1131,6 +1145,16 @@ pub fn get_session_metrics(session_id: &str) -> Result<Option<SessionMetrics>> {
                     over_top_affirmations_phrases: row.get(29)?,
                     improvement_tips: row.get(30)?,
                     custom_metrics: row.get(31)?,
+                    git_total_files_changed: row.get(32)?,
+                    git_lines_added: row.get(33)?,
+                    git_lines_removed: row.get(34)?,
+                    git_lines_modified: row.get(35)?,
+                    git_net_lines_changed: row.get(36)?,
+                    git_lines_read_per_line_changed: row.get(37)?,
+                    git_reads_per_file_changed: row.get(38)?,
+                    git_lines_changed_per_minute: row.get(39)?,
+                    git_lines_changed_per_tool_use: row.get(40)?,
+                    total_lines_read: row.get(41)?,
                 })
             },
         )

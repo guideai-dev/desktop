@@ -59,6 +59,19 @@ export const sessionMetrics = sqliteTable(
     // Deprecated: kept for backward compatibility, use category-specific columns above
     improvementTips: text('improvement_tips', { mode: 'json' }), // Array of strings
 
+    // Git diff metrics (desktop-only, from local git analysis)
+    gitTotalFilesChanged: integer('git_total_files_changed'),
+    gitLinesAdded: integer('git_lines_added'),
+    gitLinesRemoved: integer('git_lines_removed'),
+    gitLinesModified: integer('git_lines_modified'),
+    gitNetLinesChanged: integer('git_net_lines_changed'),
+    gitLinesReadPerLineChanged: real('git_lines_read_per_line_changed'),
+    gitReadsPerFileChanged: real('git_reads_per_file_changed'),
+    gitLinesChangedPerMinute: real('git_lines_changed_per_minute'),
+    gitLinesChangedPerToolUse: real('git_lines_changed_per_tool_use'),
+    totalLinesRead: integer('total_lines_read'),
+    gitDiffImprovementTips: text('git_diff_improvement_tips', { mode: 'json' }), // Array of strings
+
     // Custom/rare metrics only (for extensibility)
     customMetrics: text('custom_metrics', { mode: 'json' }),
 

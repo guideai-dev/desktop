@@ -113,6 +113,18 @@ fn main() {
                             sql: include_str!("../migrations/014_add_git_tracking.sql"),
                             kind: tauri_plugin_sql::MigrationKind::Up,
                         },
+                        tauri_plugin_sql::Migration {
+                            version: 15,
+                            description: "add_git_diff_metrics",
+                            sql: include_str!("../migrations/015_add_git_diff_metrics.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                        tauri_plugin_sql::Migration {
+                            version: 16,
+                            description: "add_git_diff_improvement_tips",
+                            sql: include_str!("../migrations/016_add_git_diff_improvement_tips.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),

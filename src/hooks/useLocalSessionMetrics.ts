@@ -65,6 +65,18 @@ async function fetchSessionMetrics(sessionId: string): Promise<SessionMetricsUI 
       taskCompletionTimeMs: row.task_completion_time_ms?.toString(),
       improvementTips: row.performance_improvement_tips ? row.performance_improvement_tips.split('\n').filter(Boolean) : [],
     } : undefined,
+    gitDiff: row.git_total_files_changed !== null ? {
+      totalFiles: row.git_total_files_changed,
+      linesAdded: row.git_lines_added,
+      linesRemoved: row.git_lines_removed,
+      linesModified: row.git_lines_modified,
+      netLines: row.git_net_lines_changed,
+      linesReadPerChanged: row.git_lines_read_per_line_changed?.toString(),
+      readsPerFile: row.git_reads_per_file_changed?.toString(),
+      linesPerMinute: row.git_lines_changed_per_minute?.toString(),
+      linesPerTool: row.git_lines_changed_per_tool_use?.toString(),
+      improvementTips: row.git_diff_improvement_tips ? row.git_diff_improvement_tips.split('\n').filter(Boolean) : [],
+    } : undefined,
   }
 
   return metricsData

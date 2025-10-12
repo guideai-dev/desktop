@@ -10,6 +10,7 @@ import type {
   QualityMetrics,
   EngagementMetrics,
   ErrorMetrics,
+  GitDiffMetrics,
 } from '@guideai-dev/types'
 
 interface SessionMetricsRow {
@@ -57,6 +58,18 @@ interface SessionMetricsRow {
   quality_improvement_tips?: string
   performance_improvement_tips?: string
   improvement_tips?: string // Deprecated - backward compatibility
+  // Git diff metrics (desktop-only)
+  git_total_files_changed?: number
+  git_lines_added?: number
+  git_lines_removed?: number
+  git_lines_modified?: number
+  git_net_lines_changed?: number
+  git_lines_read_per_line_changed?: number
+  git_reads_per_file_changed?: number
+  git_lines_changed_per_minute?: number
+  git_lines_changed_per_tool_use?: number
+  total_lines_read?: number
+  git_diff_improvement_tips?: string
   // Custom metrics
   custom_metrics?: string
   created_at: number
@@ -82,12 +95,69 @@ export function useSessionProcessing() {
           throw new Error(`No processor found for provider: ${provider}`)
         }
 
+        // Fetch git diff data to include in processing (desktop only)
+        let gitDiffData = undefined
+        try {
+          // Get session details from database to get cwd and commit hashes
+          const sessionDetails = await invoke<any[]>('execute_sql', {
+            sql: 'SELECT cwd, first_commit_hash, latest_commit_hash, session_end_time FROM agent_sessions WHERE session_id = ?',
+            params: [sessionId]
+          })
+
+          if (sessionDetails[0]?.cwd && sessionDetails[0]?.first_commit_hash) {
+            const session = sessionDetails[0]
+
+            // Determine if we should fetch unstaged changes (session ended < 48h ago)
+            const shouldShowUnstaged = (() => {
+              // Check if commits are the same (no commits during session)
+              const noCommitsDuringSession = session.first_commit_hash === session.latest_commit_hash
+              if (!noCommitsDuringSession) {
+                return false
+              }
+
+              // Check if session ended within the last 48 hours
+              if (!session.session_end_time) {
+                return false
+              }
+
+              const now = Date.now()
+              const timeSinceEnd = now - session.session_end_time
+              const fortyEightHours = 48 * 60 * 60 * 1000
+
+              return timeSinceEnd < fortyEightHours && timeSinceEnd >= 0
+            })()
+
+            // Fetch git diff using same command as Session Changes tab
+            const fileDiffs = await invoke<any[]>('get_session_git_diff', {
+              cwd: session.cwd,
+              firstCommitHash: session.first_commit_hash,
+              latestCommitHash: session.latest_commit_hash,
+              isActive: shouldShowUnstaged
+            })
+
+            // Transform to format expected by git diff processor
+            if (fileDiffs && fileDiffs.length > 0) {
+              gitDiffData = {
+                files: fileDiffs.map((f: any) => ({
+                  path: f.new_path,
+                  stats: f.stats
+                })),
+                isUnstaged: shouldShowUnstaged
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('Failed to fetch git diff for metrics processing:', err)
+          // Continue without git diff data - processor will return empty metrics
+        }
+
         // Create processing context
         const context: ProcessorContext = {
           sessionId,
           tenantId: 'local', // Desktop uses 'local' as tenant
           userId,
           provider,
+          gitDiffData, // Pass git diff data if available
         }
 
         // Process metrics
@@ -197,6 +267,22 @@ function mapResultsToRow(
         row.improvement_tips = quality.metadata?.improvement_tips?.join('\n')
         break
       }
+
+      case 'git-diff': {
+        const gitDiff = metrics as GitDiffMetrics
+        row.git_total_files_changed = gitDiff.git_total_files_changed
+        row.git_lines_added = gitDiff.git_lines_added
+        row.git_lines_removed = gitDiff.git_lines_removed
+        row.git_lines_modified = gitDiff.git_lines_modified
+        row.git_net_lines_changed = gitDiff.git_net_lines_changed
+        row.git_lines_read_per_line_changed = gitDiff.git_lines_read_per_line_changed
+        row.git_reads_per_file_changed = gitDiff.git_reads_per_file_changed
+        row.git_lines_changed_per_minute = gitDiff.git_lines_changed_per_minute
+        row.git_lines_changed_per_tool_use = gitDiff.git_lines_changed_per_tool_use
+        row.total_lines_read = gitDiff.total_lines_read
+        row.git_diff_improvement_tips = gitDiff.metadata?.improvement_tips?.join('\n')
+        break
+      }
     }
   }
 
@@ -228,6 +314,10 @@ async function storeMetrics(
         over_top_affirmations_phrases,
         usage_improvement_tips, error_improvement_tips, engagement_improvement_tips,
         quality_improvement_tips, performance_improvement_tips, improvement_tips,
+        git_total_files_changed, git_lines_added, git_lines_removed, git_lines_modified,
+        git_net_lines_changed, git_lines_read_per_line_changed, git_reads_per_file_changed,
+        git_lines_changed_per_minute, git_lines_changed_per_tool_use, total_lines_read,
+        git_diff_improvement_tips,
         created_at
       ) VALUES (
         ?, ?, ?, ?,
@@ -241,6 +331,10 @@ async function storeMetrics(
         ?,
         ?, ?, ?,
         ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?,
+        ?,
         ?
       )
     `,
@@ -283,6 +377,17 @@ async function storeMetrics(
       row.quality_improvement_tips ?? null,
       row.performance_improvement_tips ?? null,
       row.improvement_tips ?? null,
+      row.git_total_files_changed ?? null,
+      row.git_lines_added ?? null,
+      row.git_lines_removed ?? null,
+      row.git_lines_modified ?? null,
+      row.git_net_lines_changed ?? null,
+      row.git_lines_read_per_line_changed ?? null,
+      row.git_reads_per_file_changed ?? null,
+      row.git_lines_changed_per_minute ?? null,
+      row.git_lines_changed_per_tool_use ?? null,
+      row.total_lines_read ?? null,
+      row.git_diff_improvement_tips ?? null,
       row.created_at,
     ],
   })
