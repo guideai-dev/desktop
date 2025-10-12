@@ -1,4 +1,4 @@
-import { useState, Component, type ReactNode, type ErrorInfo } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { DiffView, DiffModeEnum } from "@git-diff-view/react";
@@ -9,7 +9,6 @@ import {
   DocumentTextIcon,
   PlusIcon,
   MinusIcon,
-  ExclamationTriangleIcon,
 } from "@heroicons/react/24/outline";
 
 interface FileDiff {
@@ -32,23 +31,48 @@ interface SessionChangesTabProps {
     sessionId: string;
     cwd: string;
     first_commit_hash: string;
-    latest_commit_hash: string;
+    latest_commit_hash: string | null;
+    session_end_time: number | null;
   };
-  isActive?: boolean;
+}
+
+// Helper function to check if we should show unstaged changes
+// Shows unstaged if: no commits during session AND session ended within 48 hours
+function shouldShowUnstagedChanges(
+  firstCommitHash: string,
+  latestCommitHash: string | null,
+  sessionEndTime: number | null
+): boolean {
+  // Check if commits are the same (no commits during session)
+  const noCommitsDuringSession = firstCommitHash === latestCommitHash;
+  if (!noCommitsDuringSession) {
+    return false;
+  }
+
+  // Check if session ended within the last 48 hours
+  if (!sessionEndTime) {
+    return false;
+  }
+
+  const now = Date.now();
+  const timeSinceEnd = now - sessionEndTime;
+  const fortyEightHours = 48 * 60 * 60 * 1000;
+
+  return timeSinceEnd < fortyEightHours && timeSinceEnd >= 0;
 }
 
 async function fetchGitDiff(
   cwd: string,
   firstCommitHash: string,
-  latestCommitHash: string,
-  isActive: boolean
+  latestCommitHash: string | null,
+  showUnstaged: boolean
 ): Promise<FileDiff[]> {
   // Tauri returns snake_case from Rust, so we need to handle it
   const result = await invoke<any[]>("get_session_git_diff", {
     cwd,
     firstCommitHash,
     latestCommitHash,
-    isActive,
+    isActive: showUnstaged, // Keep param name for Rust compatibility
   });
 
   // Convert snake_case to camelCase for TypeScript
@@ -70,36 +94,35 @@ async function fetchGitDiff(
 
 export function SessionChangesTab({
   session,
-  isActive = false,
 }: SessionChangesTabProps) {
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<"split" | "unified">("split");
 
-  // Check if we're showing unstaged changes (commits are the same)
-  const isShowingUnstagedChanges = session.first_commit_hash === session.latest_commit_hash && isActive;
+  // Check if we should show unstaged changes based on session end time
+  const showUnstaged = shouldShowUnstagedChanges(
+    session.first_commit_hash,
+    session.latest_commit_hash,
+    session.session_end_time
+  );
 
   // Fetch git diff with React Query
   const {
     data: diffs = [],
     isLoading: loading,
     error,
-  } = useQuery({
-    queryKey: ["session-git-diff", session.sessionId, isActive],
+  } = useQuery<FileDiff[], Error>({
+    queryKey: ["session-git-diff", session.sessionId, showUnstaged],
     queryFn: () =>
       fetchGitDiff(
         session.cwd,
         session.first_commit_hash,
         session.latest_commit_hash,
-        isActive
+        showUnstaged
       ),
-    // Auto-expand first 5 files on initial load
-    onSuccess: (data) => {
-      if (expandedFiles.size === 0) {
-        const firstFive = data.slice(0, 5).map((f) => f.newPath);
-        setExpandedFiles(new Set(firstFive));
-      }
-    },
   });
+
+  // Files start collapsed by default for better performance
+  // Users can expand individual files or use "Expand All" button
 
   const toggleFile = (filePath: string) => {
     setExpandedFiles((prev) => {
@@ -168,8 +191,8 @@ export function SessionChangesTab({
         <DocumentTextIcon className="w-16 h-16 mb-4" />
         <p className="text-lg font-medium">No changes to display</p>
         <p className="text-sm">
-          {session.first_commit_hash === session.latest_commit_hash && !isActive
-            ? "Session is inactive with no commits during the session"
+          {session.first_commit_hash === session.latest_commit_hash
+            ? "No commits were made during this session and no uncommitted changes found"
             : "The first and latest commits have identical content"}
         </p>
       </div>
@@ -179,14 +202,14 @@ export function SessionChangesTab({
   return (
     <div className="space-y-4">
       {/* Info Alert for Unstaged Changes */}
-      {isShowingUnstagedChanges && (
+      {showUnstaged && (
         <div className="alert bg-info/10 border border-info/20">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-info shrink-0 w-6 h-6 opacity-60">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
           </svg>
           <div>
             <h3 className="font-semibold text-info">Showing Uncommitted Changes</h3>
-            <div className="text-sm opacity-70">No commits were made during this active session. Displaying all uncommitted changes (staged, unstaged, and untracked files) since the session started. This will only be shown while the session is active.</div>
+            <div className="text-sm opacity-70">No commits were made during this session. Displaying all uncommitted changes (staged, unstaged, and untracked files) since the session started. This view is available for sessions that ended within the last 48 hours.</div>
           </div>
         </div>
       )}
@@ -292,7 +315,6 @@ function FileDiffCard({
     // Must have: Index, ---, +++, and @@ lines
     const hasHeader = hunk.includes("---") && hunk.includes("+++");
     const hasHunkMarker = hunk.includes("@@");
-    const hasContent = /^[\+\- ]/.test(hunk.split('\n').slice(-2).join('\n'));
 
     if (!hasHeader || !hasHunkMarker) {
       console.warn(`Invalid hunk format for ${file.newPath}:`, hunk.substring(0, 200));

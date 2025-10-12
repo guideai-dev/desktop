@@ -35,7 +35,7 @@ url = "2.0"
 # File watching for config changes
 notify = "6.0"
 # HTTP client for API requests
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", features = ["json", "native-tls-vendored"] }
 # Additional tokio utilities
 tokio-util = "0.7"
 # Date/time handling
@@ -57,7 +57,7 @@ hex = "0.4"
 # Gzip compression for upload optimization
 flate2 = "1.0"
 # Git repository operations
-git2 = "0.19"
+git2 = { version = "0.19", features = ["vendored-libgit2", "vendored-openssl"] }
 # File locking for metadata
 fs2 = "0.4"
 # Error handling

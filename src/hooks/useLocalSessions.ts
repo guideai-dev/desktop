@@ -244,6 +244,9 @@ async function fetchSessions(filters: SessionFilters = {}): Promise<SessionWithM
       uploadedAt: row.uploaded_at ? new Date(row.uploaded_at).toISOString() : new Date().toISOString(),
       syncedToServer: row.synced_to_server === 1,
       syncFailedReason: row.sync_failed_reason || null,
+      gitBranch: row.git_branch || null,
+      firstCommitHash: row.first_commit_hash || null,
+      latestCommitHash: row.latest_commit_hash || null,
       metrics,
     }
   })
@@ -378,6 +381,9 @@ export function useLocalSession(sessionId: string) {
         syncedToServer: row.synced_to_server === 1,
         syncFailedReason: row.sync_failed_reason || null,
         filePath: row.file_path,
+        gitBranch: row.git_branch || null,
+        firstCommitHash: row.first_commit_hash || null,
+        latestCommitHash: row.latest_commit_hash || null,
         metrics,
       }
 

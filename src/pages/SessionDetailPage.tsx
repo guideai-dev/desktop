@@ -145,18 +145,35 @@ export default function SessionDetailPage() {
     ? JSON.parse(session.ai_model_phase_analysis)
     : null
 
+  // Helper to check if we should show unstaged changes
+  // Shows unstaged if: no commits during session AND session ended within 48 hours
+  const shouldShowUnstaged = (session: AgentSession | null | undefined): boolean => {
+    if (!session) return false
+
+    const noCommitsDuringSession = session.first_commit_hash === session.latest_commit_hash
+    if (!noCommitsDuringSession) return false
+
+    if (!session.session_end_time) return false
+
+    const now = Date.now()
+    const timeSinceEnd = now - session.session_end_time
+    const fortyEightHours = 48 * 60 * 60 * 1000
+
+    return timeSinceEnd < fortyEightHours && timeSinceEnd >= 0
+  }
+
   // Fetch git diff stats for tab badge (only when Changes tab is NOT active)
   const { data: gitDiffStats } = useQuery({
-    queryKey: ['session-git-diff-stats', sessionId, isSessionActive(sessionId || '', session?.session_end_time ? new Date(session.session_end_time).toISOString() : null)],
+    queryKey: ['session-git-diff-stats', sessionId, shouldShowUnstaged(session)],
     queryFn: async () => {
-      if (!session?.cwd || !session?.first_commit_hash || !session?.latest_commit_hash) {
+      if (!session?.cwd || !session?.first_commit_hash) {
         return null
       }
       const diffs = await invoke<any[]>('get_session_git_diff', {
         cwd: session.cwd,
         firstCommitHash: session.first_commit_hash,
-        latestCommitHash: session.latest_commit_hash,
-        isActive: isSessionActive(sessionId || '', session?.session_end_time ? new Date(session.session_end_time).toISOString() : null),
+        latestCommitHash: session.latest_commit_hash || null,
+        isActive: shouldShowUnstaged(session),
       })
       const stats = diffs.reduce(
         (acc: { additions: number; deletions: number }, file: any) => ({
@@ -167,7 +184,7 @@ export default function SessionDetailPage() {
       )
       return stats
     },
-    enabled: !!session?.cwd && !!session?.first_commit_hash && !!session?.latest_commit_hash && activeTab !== 'changes',
+    enabled: !!session?.cwd && !!session?.first_commit_hash && activeTab !== 'changes',
   })
 
   // Handle sync session click
@@ -339,6 +356,11 @@ export default function SessionDetailPage() {
     }
   }
 
+  // Handler for viewing diff (opens Session Changes tab)
+  const handleViewDiff = () => {
+    setActiveTab('changes')
+  }
+
   const renderTimeline = () => {
     if (!timeline) return null
 
@@ -464,6 +486,7 @@ export default function SessionDetailPage() {
               percentage: progress.currentStep.percentage,
             } : null}
             onCwdClick={session.cwd ? handleCwdClick : undefined}
+            onViewDiff={session.first_commit_hash ? handleViewDiff : undefined}
             syncStatus={{
               synced: session.synced_to_server === 1,
               failed: !!session.sync_failed_reason,
@@ -528,7 +551,7 @@ export default function SessionDetailPage() {
               <ChartBarIcon className="w-5 h-5" />
               <span className="hidden md:inline">Metrics</span>
             </button>
-            {session.cwd && session.first_commit_hash && session.latest_commit_hash && (
+            {session.cwd && session.first_commit_hash && (
               <button
                 className={`tab tab-lg gap-2 ${
                   activeTab === 'changes'
@@ -653,15 +676,15 @@ export default function SessionDetailPage() {
             }
           />
         )}
-        {activeTab === 'changes' && session.cwd && session.first_commit_hash && session.latest_commit_hash && (
+        {activeTab === 'changes' && session.cwd && session.first_commit_hash && (
           <SessionChangesTab
             session={{
               sessionId: session.session_id,
               cwd: session.cwd,
               first_commit_hash: session.first_commit_hash,
-              latest_commit_hash: session.latest_commit_hash,
+              latest_commit_hash: session.latest_commit_hash || null,
+              session_end_time: session.session_end_time,
             }}
-            isActive={isSessionActive(session.session_id, session.session_end_time ? new Date(session.session_end_time).toISOString() : null)}
           />
         )}
       </div>
