@@ -1451,3 +1451,13 @@ pub async fn get_session_rating(session_id: String) -> Result<Option<String>, St
 
     get_session_rating(&session_id).map_err(|e| format!("Failed to get rating: {}", e))
 }
+
+/// Get git diff between two commits for a session
+#[tauri::command]
+pub async fn get_session_git_diff(
+    cwd: String,
+    first_commit_hash: String,
+    latest_commit_hash: String,
+) -> Result<Vec<crate::git_diff::FileDiff>, String> {
+    crate::git_diff::get_commit_diff(&cwd, &first_commit_hash, &latest_commit_hash)
+}

@@ -133,3 +133,49 @@
     #020617 100%   /* slate-950 */
   );
 }
+
+/* Git Diff View Styles */
+@import '@git-diff-view/react/styles/diff-view.css';
+
+/* Diff View Wrapper - ensure proper styling */
+.diff-view-wrapper {
+  @apply w-full overflow-auto;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+}
+
+/* Enhanced diff view colors - use correct variable names with trailing -- */
+[data-theme="guideai-light"] .diff-view-wrapper {
+  /* Addition line colors */
+  --diff-add-content--: #dcfce7;
+  --diff-add-lineNumber--: #bbf7d0;
+
+  /* Deletion line colors */
+  --diff-delete-content--: #fee2e2;
+  --diff-delete-lineNumber--: #fecaca;
+
+  /* Plain/context line colors */
+  --diff-plain-content--: #ffffff;
+  --diff-plain-lineNumber--: #f8fafc;
+  --diff-plain-lineNumber-color--: #64748b;
+
+  /* Hunk header */
+  --diff-hunk-content--: #e0e7ff;
+}
+
+[data-theme="guideai-dark"] .diff-view-wrapper {
+  /* Addition line colors */
+  --diff-add-content--: #14532d;
+  --diff-add-lineNumber--: #166534;
+
+  /* Deletion line colors */
+  --diff-delete-content--: #7f1d1d;
+  --diff-delete-lineNumber--: #991b1b;
+
+  /* Plain/context line colors */
+  --diff-plain-content--: #1e293b;
+  --diff-plain-lineNumber--: #0f172a;
+  --diff-plain-lineNumber-color--: #94a3b8;
+
+  /* Hunk header */
+  --diff-hunk-content--: #312e81;
+}

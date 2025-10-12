@@ -20,6 +20,9 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@git-diff-view/core": "^0.0.32",
+    "@git-diff-view/file": "^0.0.32",
+    "@git-diff-view/react": "^0.0.32",
     "@guideai-dev/session-processing": "workspace:*",
     "@guideai-dev/types": "workspace:*",
     "@heroicons/react": "^2.2.0",

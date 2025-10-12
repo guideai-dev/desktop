@@ -7,6 +7,7 @@ mod config;
 mod database;
 mod error;
 mod file_watcher;
+mod git_diff;
 mod logging;
 mod project_metadata;
 mod providers;
@@ -106,6 +107,12 @@ fn main() {
                             sql: include_str!("../migrations/013_add_file_hash.sql"),
                             kind: tauri_plugin_sql::MigrationKind::Up,
                         },
+                        tauri_plugin_sql::Migration {
+                            version: 14,
+                            description: "add_git_tracking",
+                            sql: include_str!("../migrations/014_add_git_tracking.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),
@@ -202,7 +209,8 @@ fn main() {
             commands::get_project_by_id,
             commands::open_folder_in_os,
             commands::quick_rate_session,
-            commands::get_session_rating
+            commands::get_session_rating,
+            commands::get_session_git_diff
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

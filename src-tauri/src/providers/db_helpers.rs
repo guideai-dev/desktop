@@ -20,6 +20,15 @@ pub fn insert_session_immediately(
     // Extract CWD from file
     let cwd = extract_cwd_from_file(provider_id, file_path);
 
+    // Extract git info if CWD is available
+    let (git_branch, git_commit) = if let Some(ref cwd_path) = cwd {
+        let branch = crate::project_metadata::extract_git_branch(cwd_path);
+        let commit = crate::project_metadata::extract_git_commit_hash(cwd_path);
+        (branch, commit)
+    } else {
+        (None, None)
+    };
+
     // Check if already exists
     if session_exists(session_id, file_name)? {
         // Update existing session with new file size and timestamp
@@ -43,6 +52,8 @@ pub fn insert_session_immediately(
             start_time,
             end_time,
             cwd.as_deref(),
+            git_branch.as_deref(),
+            git_commit.as_deref(), // latest_commit_hash (updates on each change)
         )?;
 
         // Also link project for existing sessions if CWD is available
@@ -114,6 +125,9 @@ pub fn insert_session_immediately(
         end_time,
         duration,
         cwd.as_deref(),
+        git_branch.as_deref(),
+        git_commit.as_deref(), // first_commit_hash
+        git_commit.as_deref(), // latest_commit_hash (same as first at creation)
     )?;
 
     // Extract and link project if CWD is available

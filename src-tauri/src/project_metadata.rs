@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use git2::Repository;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectMetadata {
@@ -257,6 +258,23 @@ fn extract_git_remote_url(path: &Path) -> Option<String> {
     }
 
     None
+}
+
+/// Extract current git branch from working directory
+/// Returns None if not a git repository or if there's an error
+pub fn extract_git_branch(cwd: &str) -> Option<String> {
+    let repo = Repository::open(cwd).ok()?;
+    let head = repo.head().ok()?;
+    head.shorthand().map(String::from)
+}
+
+/// Extract current git commit hash from working directory
+/// Returns None if not a git repository or if there's an error
+pub fn extract_git_commit_hash(cwd: &str) -> Option<String> {
+    let repo = Repository::open(cwd).ok()?;
+    let head = repo.head().ok()?;
+    let oid = head.target()?;
+    Some(oid.to_string())
 }
 
 #[cfg(test)]

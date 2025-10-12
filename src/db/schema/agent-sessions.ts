@@ -27,6 +27,10 @@ export const agentSessions = sqliteTable(
     aiModelQualityScore: integer('ai_model_quality_score'), // Quality assessment score (0-100)
     aiModelMetadata: text('ai_model_metadata', { mode: 'json' }), // Structured AI outputs (intents, assessments, etc.)
     aiModelPhaseAnalysis: text('ai_model_phase_analysis', { mode: 'json' }), // Phase analysis breakdown of session
+    // Git tracking fields (session-specific, not project-level)
+    gitBranch: text('git_branch'), // Git branch at session start
+    firstCommitHash: text('first_commit_hash'), // First commit hash (SHA-1)
+    latestCommitHash: text('latest_commit_hash'), // Latest commit hash during session
     // Sync fields
     syncedToServer: integer('synced_to_server', { mode: 'boolean' }).default(false),
     syncedAt: integer('synced_at', { mode: 'timestamp_ms' }),
@@ -50,6 +54,8 @@ export const agentSessions = sqliteTable(
     assessmentStatusIdx: index('agent_sessions_assessment_status_idx').on(table.assessmentStatus),
     // Index for project-based queries
     projectIdx: index('agent_sessions_project_idx').on(table.projectId),
+    // Index for git branch queries (for future PR matching)
+    gitBranchIdx: index('agent_sessions_git_branch_idx').on(table.gitBranch),
     // Index for sync status
     syncIdx: index('agent_sessions_sync_idx').on(table.syncedToServer),
   })

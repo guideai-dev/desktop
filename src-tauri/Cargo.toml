@@ -56,6 +56,8 @@ sha2 = "0.10"
 hex = "0.4"
 # Gzip compression for upload optimization
 flate2 = "1.0"
+# Git repository operations
+git2 = "0.19"
 # File locking for metadata
 fs2 = "0.4"
 # Error handling

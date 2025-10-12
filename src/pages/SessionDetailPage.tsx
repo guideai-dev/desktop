@@ -33,6 +33,7 @@ import {
   Cog6ToothIcon,
   ChatBubbleLeftRightIcon,
 } from '@heroicons/react/24/outline'
+import { SessionChangesTab } from '../components/SessionChangesTab'
 
 interface AgentSession {
   id: string
@@ -54,6 +55,9 @@ interface AgentSession {
   cwd: string | null
   sync_failed_reason: string | null
   ai_model_phase_analysis: string | null
+  git_branch: string | null
+  first_commit_hash: string | null
+  latest_commit_hash: string | null
 }
 
 interface LocalProject {
@@ -139,7 +143,7 @@ export default function SessionDetailPage() {
     : null
 
   // Tab state - default to transcript
-  const [activeTab, setActiveTab] = useState<'phase-timeline' | 'transcript' | 'metrics'>('transcript')
+  const [activeTab, setActiveTab] = useState<'phase-timeline' | 'transcript' | 'metrics' | 'changes'>('transcript')
 
   // Handle sync session click
   const handleSyncSession = async () => {
@@ -189,9 +193,10 @@ export default function SessionDetailPage() {
     if (!sessionId) return
 
     const invalidateSessionData = () => {
-      // Invalidate both metadata and content
+      // Invalidate metadata, content, and git diff
       queryClient.invalidateQueries({ queryKey: ['session-metadata', sessionId] })
       queryClient.invalidateQueries({ queryKey: ['session-content', sessionId] })
+      queryClient.invalidateQueries({ queryKey: ['session-git-diff', sessionId] })
     }
 
     const unlistenSynced = listen('session-synced', (event) => {
@@ -418,6 +423,9 @@ export default function SessionDetailPage() {
                 gitRemoteUrl: project.github_repo || undefined,
                 cwd: undefined,
               } : undefined,
+              gitBranch: session.git_branch || undefined,
+              firstCommitHash: session.first_commit_hash || undefined,
+              latestCommitHash: session.latest_commit_hash || undefined,
             }}
             messageCount={messageCount}
             rating={((session as any).assessment_rating as SessionRating) || null}
@@ -494,6 +502,22 @@ export default function SessionDetailPage() {
               <ChartBarIcon className="w-5 h-5" />
               <span className="hidden md:inline">Metrics</span>
             </button>
+            {session.cwd && session.first_commit_hash && session.latest_commit_hash && (
+              <button
+                className={`tab tab-lg gap-2 ${
+                  activeTab === 'changes'
+                    ? 'tab-active bg-base-100 text-primary font-semibold border-b-2 border-primary'
+                    : 'hover:bg-base-300'
+                }`}
+                onClick={() => setActiveTab('changes')}
+                title="Changes"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                </svg>
+                <span className="hidden md:inline">Changes</span>
+              </button>
+            )}
           </div>
 
           {/* Right: Tab-specific Controls */}
@@ -587,6 +611,16 @@ export default function SessionDetailPage() {
                 ? JSON.parse((session as any).ai_model_metadata)
                 : undefined
             }
+          />
+        )}
+        {activeTab === 'changes' && session.cwd && session.first_commit_hash && session.latest_commit_hash && (
+          <SessionChangesTab
+            session={{
+              sessionId: session.session_id,
+              cwd: session.cwd,
+              first_commit_hash: session.first_commit_hash,
+              latest_commit_hash: session.latest_commit_hash,
+            }}
           />
         )}
       </div>

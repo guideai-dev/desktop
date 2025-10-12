@@ -153,6 +153,9 @@ pub async fn upload_v2(
         "aiModelQualityScore": session_data.ai_model_quality_score,
         "aiModelMetadata": session_data.ai_model_metadata.and_then(|s| serde_json::from_str::<Value>(&s).ok()),
         "aiModelPhaseAnalysis": session_data.ai_model_phase_analysis.and_then(|s| serde_json::from_str::<Value>(&s).ok()),
+        "gitBranch": session_data.git_branch,
+        "firstCommitHash": session_data.first_commit_hash,
+        "latestCommitHash": session_data.latest_commit_hash,
     });
 
     // Add project metadata if available
