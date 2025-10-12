@@ -11,6 +11,8 @@ pub struct FileDiff {
     pub hunks: Vec<String>,
     pub stats: DiffStats,
     pub is_binary: bool,
+    pub old_content: Option<String>,
+    pub new_content: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,7 +62,7 @@ pub fn get_commit_diff(
             .diff_tree_to_workdir_with_index(Some(&tree), Some(&mut diff_opts))
             .map_err(|e| format!("Failed to create diff to working directory: {}", e))?;
 
-        return parse_diff(diff);
+        return parse_diff(&repo, diff, Some(&tree), None, cwd);
     }
 
     // Get commits for diff between two different commits
@@ -92,11 +94,17 @@ pub fn get_commit_diff(
         .map_err(|e| format!("Failed to create diff: {}", e))?;
 
     // Parse diff into FileDiff structures
-    parse_diff(diff)
+    parse_diff(&repo, diff, Some(&first_tree), Some(&latest_tree), cwd)
 }
 
 /// Parse git2 Diff into structured FileDiff objects
-fn parse_diff(diff: Diff) -> Result<Vec<FileDiff>, String> {
+fn parse_diff(
+    repo: &Repository,
+    diff: Diff,
+    old_tree: Option<&git2::Tree>,
+    new_tree: Option<&git2::Tree>,
+    cwd: &str,
+) -> Result<Vec<FileDiff>, String> {
     let mut file_diffs: Vec<FileDiff> = Vec::new();
     let mut current_file: Option<FileDiff> = None;
     let mut current_file_content = String::new();
@@ -138,6 +146,8 @@ fn parse_diff(diff: Diff) -> Result<Vec<FileDiff>, String> {
                 hunks: Vec::new(),
                 stats: DiffStats { additions: 0, deletions: 0 },
                 is_binary: delta.new_file().is_binary(),
+                old_content: None,
+                new_content: None,
             });
             current_hunk_header = None;
             file_headers_added = false;
@@ -209,7 +219,59 @@ fn parse_diff(diff: Diff) -> Result<Vec<FileDiff>, String> {
         file_diffs.push(file);
     }
 
+    // Extract file contents for syntax highlighting
+    for file_diff in &mut file_diffs {
+        if file_diff.is_binary {
+            continue; // Skip binary files
+        }
+
+        // Get old file content
+        if !file_diff.old_path.is_empty() && file_diff.change_type != "added" {
+            if let Some(tree) = old_tree {
+                file_diff.old_content = get_file_content_from_tree(repo, tree, &file_diff.old_path).ok();
+            }
+        }
+
+        // Get new file content
+        if !file_diff.new_path.is_empty() && file_diff.change_type != "deleted" {
+            if let Some(tree) = new_tree {
+                // From tree (committed)
+                file_diff.new_content = get_file_content_from_tree(repo, tree, &file_diff.new_path).ok();
+            } else {
+                // From working directory (uncommitted changes)
+                file_diff.new_content = get_file_content_from_workdir(cwd, &file_diff.new_path).ok();
+            }
+        }
+    }
+
     Ok(file_diffs)
+}
+
+/// Get file content from a git tree
+fn get_file_content_from_tree(repo: &Repository, tree: &git2::Tree, path: &str) -> Result<String, String> {
+    let entry = tree
+        .get_path(Path::new(path))
+        .map_err(|e| format!("File not found in tree: {}", e))?;
+
+    let object = entry
+        .to_object(repo)
+        .map_err(|e| format!("Failed to get object: {}", e))?;
+
+    let blob = object
+        .as_blob()
+        .ok_or_else(|| "Object is not a blob".to_string())?;
+
+    let content = String::from_utf8(blob.content().to_vec())
+        .map_err(|_| "File content is not valid UTF-8".to_string())?;
+
+    Ok(content)
+}
+
+/// Get file content from working directory
+fn get_file_content_from_workdir(cwd: &str, path: &str) -> Result<String, String> {
+    let full_path = Path::new(cwd).join(path);
+    std::fs::read_to_string(&full_path)
+        .map_err(|e| format!("Failed to read file from working directory: {}", e))
 }
 
 /// Detect programming language from file extension

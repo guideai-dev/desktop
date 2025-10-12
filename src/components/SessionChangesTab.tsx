@@ -1,7 +1,7 @@
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { invoke } from '@tauri-apps/api/core'
-import { DiffView, DiffModeEnum } from '@git-diff-view/react'
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { invoke } from "@tauri-apps/api/core";
+import { DiffView, DiffModeEnum } from "@git-diff-view/react";
 // Note: CSS import handled globally in index.css to avoid module loading issues
 import {
   ChevronRightIcon,
@@ -9,29 +9,31 @@ import {
   DocumentTextIcon,
   PlusIcon,
   MinusIcon,
-} from '@heroicons/react/24/outline'
+} from "@heroicons/react/24/outline";
 
 interface FileDiff {
-  oldPath: string
-  newPath: string
-  changeType: 'added' | 'deleted' | 'modified' | 'renamed'
-  language: string | null
-  hunks: string[]
+  oldPath: string;
+  newPath: string;
+  changeType: "added" | "deleted" | "modified" | "renamed";
+  language: string | null;
+  hunks: string[];
   stats: {
-    additions: number
-    deletions: number
-  }
-  isBinary: boolean
+    additions: number;
+    deletions: number;
+  };
+  isBinary: boolean;
+  oldContent?: string | null;
+  newContent?: string | null;
 }
 
 interface SessionChangesTabProps {
   session: {
-    sessionId: string
-    cwd: string
-    first_commit_hash: string
-    latest_commit_hash: string
-  }
-  isActive?: boolean
+    sessionId: string;
+    cwd: string;
+    first_commit_hash: string;
+    latest_commit_hash: string;
+  };
+  isActive?: boolean;
 }
 
 async function fetchGitDiff(
@@ -41,17 +43,17 @@ async function fetchGitDiff(
   isActive: boolean
 ): Promise<FileDiff[]> {
   // Tauri returns snake_case from Rust, so we need to handle it
-  const result = await invoke<any[]>('get_session_git_diff', {
+  const result = await invoke<any[]>("get_session_git_diff", {
     cwd,
     firstCommitHash,
     latestCommitHash,
     isActive,
-  })
+  });
 
   // Convert snake_case to camelCase for TypeScript
   return result.map((item: any) => ({
-    oldPath: item.old_path || '',
-    newPath: item.new_path || '',
+    oldPath: item.old_path || "",
+    newPath: item.new_path || "",
     changeType: item.change_type as any,
     language: item.language || null,
     hunks: item.hunks || [],
@@ -60,12 +62,17 @@ async function fetchGitDiff(
       deletions: item.stats?.deletions || 0,
     },
     isBinary: item.is_binary || false,
-  }))
+    oldContent: item.old_content || null,
+    newContent: item.new_content || null,
+  }));
 }
 
-export function SessionChangesTab({ session, isActive = false }: SessionChangesTabProps) {
-  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set())
-  const [viewMode, setViewMode] = useState<'split' | 'unified'>('split')
+export function SessionChangesTab({
+  session,
+  isActive = false,
+}: SessionChangesTabProps) {
+  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<"split" | "unified">("split");
 
   // Fetch git diff with React Query
   const {
@@ -73,37 +80,42 @@ export function SessionChangesTab({ session, isActive = false }: SessionChangesT
     isLoading: loading,
     error,
   } = useQuery({
-    queryKey: ['session-git-diff', session.sessionId, isActive],
+    queryKey: ["session-git-diff", session.sessionId, isActive],
     queryFn: () =>
-      fetchGitDiff(session.cwd, session.first_commit_hash, session.latest_commit_hash, isActive),
+      fetchGitDiff(
+        session.cwd,
+        session.first_commit_hash,
+        session.latest_commit_hash,
+        isActive
+      ),
     // Auto-expand first 5 files on initial load
     onSuccess: (data) => {
       if (expandedFiles.size === 0) {
-        const firstFive = data.slice(0, 5).map((f) => f.newPath)
-        setExpandedFiles(new Set(firstFive))
+        const firstFive = data.slice(0, 5).map((f) => f.newPath);
+        setExpandedFiles(new Set(firstFive));
       }
     },
-  })
+  });
 
   const toggleFile = (filePath: string) => {
-    setExpandedFiles(prev => {
-      const next = new Set(prev)
+    setExpandedFiles((prev) => {
+      const next = new Set(prev);
       if (next.has(filePath)) {
-        next.delete(filePath)
+        next.delete(filePath);
       } else {
-        next.add(filePath)
+        next.add(filePath);
       }
-      return next
-    })
-  }
+      return next;
+    });
+  };
 
   const expandAll = () => {
-    setExpandedFiles(new Set(diffs.map(f => f.newPath)))
-  }
+    setExpandedFiles(new Set(diffs.map((f) => f.newPath)));
+  };
 
   const collapseAll = () => {
-    setExpandedFiles(new Set())
-  }
+    setExpandedFiles(new Set());
+  };
 
   const totalStats = diffs.reduce(
     (acc, file) => ({
@@ -111,21 +123,26 @@ export function SessionChangesTab({ session, isActive = false }: SessionChangesT
       deletions: acc.deletions + file.stats.deletions,
     }),
     { additions: 0, deletions: 0 }
-  )
+  );
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <span className="loading loading-spinner loading-lg" />
       </div>
-    )
+    );
   }
 
   if (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error)
+    const errorMessage = error instanceof Error ? error.message : String(error);
     return (
       <div className="alert alert-error">
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg
+          className="w-6 h-6"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -138,7 +155,7 @@ export function SessionChangesTab({ session, isActive = false }: SessionChangesT
           <div className="text-sm opacity-80">{errorMessage}</div>
         </div>
       </div>
-    )
+    );
   }
 
   if (diffs.length === 0) {
@@ -148,11 +165,11 @@ export function SessionChangesTab({ session, isActive = false }: SessionChangesT
         <p className="text-lg font-medium">No changes to display</p>
         <p className="text-sm">
           {session.first_commit_hash === session.latest_commit_hash && !isActive
-            ? 'Session is inactive with no commits during the session'
-            : 'The first and latest commits have identical content'}
+            ? "Session is inactive with no commits during the session"
+            : "The first and latest commits have identical content"}
         </p>
       </div>
-    )
+    );
   }
 
   return (
@@ -165,7 +182,7 @@ export function SessionChangesTab({ session, isActive = false }: SessionChangesT
             <div className="flex items-center gap-4">
               <div className="badge badge-lg gap-2">
                 <DocumentTextIcon className="w-4 h-4" />
-                {diffs.length} {diffs.length === 1 ? 'file' : 'files'} changed
+                {diffs.length} {diffs.length === 1 ? "file" : "files"} changed
               </div>
               <div className="badge badge-lg badge-success gap-2">
                 <PlusIcon className="w-4 h-4" />
@@ -188,14 +205,18 @@ export function SessionChangesTab({ session, isActive = false }: SessionChangesT
               <div className="divider divider-horizontal mx-0"></div>
               <div className="btn-group">
                 <button
-                  className={`btn btn-xs ${viewMode === 'split' ? 'btn-active' : ''}`}
-                  onClick={() => setViewMode('split')}
+                  className={`btn btn-xs ${
+                    viewMode === "split" ? "btn-active" : ""
+                  }`}
+                  onClick={() => setViewMode("split")}
                 >
                   Split
                 </button>
                 <button
-                  className={`btn btn-xs ${viewMode === 'unified' ? 'btn-active' : ''}`}
-                  onClick={() => setViewMode('unified')}
+                  className={`btn btn-xs ${
+                    viewMode === "unified" ? "btn-active" : ""
+                  }`}
+                  onClick={() => setViewMode("unified")}
                 >
                   Unified
                 </button>
@@ -218,27 +239,32 @@ export function SessionChangesTab({ session, isActive = false }: SessionChangesT
         ))}
       </div>
     </div>
-  )
+  );
 }
 
 interface FileDiffCardProps {
-  file: FileDiff
-  expanded: boolean
-  onToggle: () => void
-  viewMode: 'split' | 'unified'
+  file: FileDiff;
+  expanded: boolean;
+  onToggle: () => void;
+  viewMode: "split" | "unified";
 }
 
-function FileDiffCard({ file, expanded, onToggle, viewMode }: FileDiffCardProps) {
+function FileDiffCard({
+  file,
+  expanded,
+  onToggle,
+  viewMode,
+}: FileDiffCardProps) {
   const changeTypeColors = {
-    added: 'badge-success',
-    deleted: 'badge-error',
-    modified: 'badge-info',
-    renamed: 'badge-warning',
-  }
+    added: "badge-success",
+    deleted: "badge-error",
+    modified: "badge-info",
+    renamed: "badge-warning",
+  };
 
   // Get current theme from document
-  const theme = document.documentElement.dataset.theme || 'guideai-dark'
-  const diffTheme = theme.includes('light') ? 'light' : 'dark'
+  const theme = document.documentElement.dataset.theme || "guideai-dark";
+  const diffTheme = theme.includes("light") ? "light" : "dark";
 
   return (
     <div className="card bg-base-100 border border-base-300">
@@ -254,8 +280,12 @@ function FileDiffCard({ file, expanded, onToggle, viewMode }: FileDiffCardProps)
             ) : (
               <ChevronRightIcon className="w-5 h-5 flex-shrink-0" />
             )}
-            <code className="font-mono text-sm font-semibold">{file.newPath}</code>
-            <span className={`badge badge-sm ${changeTypeColors[file.changeType]}`}>
+            <code className="font-mono text-sm font-semibold">
+              {file.newPath}
+            </code>
+            <span
+              className={`badge badge-sm ${changeTypeColors[file.changeType]}`}
+            >
               {file.changeType}
             </span>
             {file.isBinary && <span className="badge badge-sm">binary</span>}
@@ -287,23 +317,29 @@ function FileDiffCard({ file, expanded, onToggle, viewMode }: FileDiffCardProps)
                   oldFile: {
                     fileName: file.oldPath,
                     fileLang: file.language || undefined,
+                    content: file.oldContent || undefined,
                   },
                   newFile: {
                     fileName: file.newPath,
                     fileLang: file.language || undefined,
+                    content: file.newContent || undefined,
                   },
                   hunks: file.hunks,
                 }}
-                diffViewMode={viewMode === 'split' ? DiffModeEnum.Split : DiffModeEnum.Unified}
+                diffViewMode={
+                  viewMode === "split"
+                    ? DiffModeEnum.Split
+                    : DiffModeEnum.Unified
+                }
                 diffViewTheme={diffTheme}
                 diffViewHighlight={true}
                 diffViewWrap={false}
-                diffViewFontSize={14}
+                diffViewFontSize={12}
               />
             </div>
           )}
         </div>
       )}
     </div>
-  )
+  );
 }
