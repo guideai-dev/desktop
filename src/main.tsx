@@ -16,6 +16,18 @@ const queryClient = new QueryClient({
   },
 })
 
+// Hide loading screen when app is ready
+const hideLoadingScreen = () => {
+  const loadingScreen = document.getElementById('loading-screen')
+  if (loadingScreen) {
+    loadingScreen.classList.add('hidden')
+    // Remove loading screen from DOM after transition
+    setTimeout(() => {
+      loadingScreen.remove()
+    }, 300)
+  }
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
@@ -23,3 +35,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </QueryClientProvider>
   </React.StrictMode>
 )
+
+// Hide loading screen after a delay to ensure app is rendered
+setTimeout(hideLoadingScreen, 800)
