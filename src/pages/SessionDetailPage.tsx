@@ -683,6 +683,7 @@ export default function SessionDetailPage() {
               cwd: session.cwd,
               first_commit_hash: session.first_commit_hash,
               latest_commit_hash: session.latest_commit_hash || null,
+              session_start_time: session.session_start_time,
               session_end_time: session.session_end_time,
             }}
           />

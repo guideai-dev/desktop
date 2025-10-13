@@ -32,48 +32,46 @@ interface SessionChangesTabProps {
     cwd: string;
     first_commit_hash: string;
     latest_commit_hash: string | null;
+    session_start_time: number | null;
     session_end_time: number | null;
   };
-}
-
-// Helper function to check if we should show unstaged changes
-// Shows unstaged if: no commits during session AND session ended within 48 hours
-function shouldShowUnstagedChanges(
-  firstCommitHash: string,
-  latestCommitHash: string | null,
-  sessionEndTime: number | null
-): boolean {
-  // Check if commits are the same (no commits during session)
-  const noCommitsDuringSession = firstCommitHash === latestCommitHash;
-  if (!noCommitsDuringSession) {
-    return false;
-  }
-
-  // Check if session ended within the last 48 hours
-  if (!sessionEndTime) {
-    return false;
-  }
-
-  const now = Date.now();
-  const timeSinceEnd = now - sessionEndTime;
-  const fortyEightHours = 48 * 60 * 60 * 1000;
-
-  return timeSinceEnd < fortyEightHours && timeSinceEnd >= 0;
 }
 
 async function fetchGitDiff(
   cwd: string,
   firstCommitHash: string,
   latestCommitHash: string | null,
-  showUnstaged: boolean
+  sessionStartTime: number | null,
+  sessionEndTime: number | null
 ): Promise<FileDiff[]> {
+  // Determine if session is active (no end time)
+  const isActive = sessionEndTime === null;
+
+  console.log("Calling git diff with params:", {
+    cwd,
+    firstCommitHash,
+    latestCommitHash,
+    isActive,
+    sessionStartTime,
+    sessionEndTime,
+  });
+
   // Tauri returns snake_case from Rust, so we need to handle it
   const result = await invoke<any[]>("get_session_git_diff", {
     cwd,
     firstCommitHash,
     latestCommitHash,
-    isActive: showUnstaged, // Keep param name for Rust compatibility
+    isActive,
+    sessionStartTime,
+    sessionEndTime,
   });
+
+  console.log("Raw git diff result from Rust:", result);
+  console.log("Number of files:", result.length);
+  if (result.length > 0) {
+    console.log("First file sample:", result[0]);
+    console.log("First file hunks:", result[0].hunks);
+  }
 
   // Convert snake_case to camelCase for TypeScript
   return result.map((item: any) => ({
@@ -98,12 +96,8 @@ export function SessionChangesTab({
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<"split" | "unified">("split");
 
-  // Check if we should show unstaged changes based on session end time
-  const showUnstaged = shouldShowUnstagedChanges(
-    session.first_commit_hash,
-    session.latest_commit_hash,
-    session.session_end_time
-  );
+  // Determine if session is active
+  const isActive = session.session_end_time === null;
 
   // Fetch git diff with React Query
   const {
@@ -111,13 +105,19 @@ export function SessionChangesTab({
     isLoading: loading,
     error,
   } = useQuery<FileDiff[], Error>({
-    queryKey: ["session-git-diff", session.sessionId, showUnstaged],
+    queryKey: [
+      "session-git-diff",
+      session.sessionId,
+      session.session_start_time,
+      session.session_end_time,
+    ],
     queryFn: () =>
       fetchGitDiff(
         session.cwd,
         session.first_commit_hash,
         session.latest_commit_hash,
-        showUnstaged
+        session.session_start_time,
+        session.session_end_time
       ),
   });
 
@@ -201,15 +201,23 @@ export function SessionChangesTab({
 
   return (
     <div className="space-y-4">
-      {/* Info Alert for Unstaged Changes */}
-      {showUnstaged && (
+      {/* Info Alert for Active Sessions or Uncommitted Changes */}
+      {(isActive || session.first_commit_hash === session.latest_commit_hash) && (
         <div className="alert bg-info/10 border border-info/20">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-info shrink-0 w-6 h-6 opacity-60">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
           </svg>
           <div>
-            <h3 className="font-semibold text-info">Showing Uncommitted Changes</h3>
-            <div className="text-sm opacity-70">No commits were made during this session. Displaying all uncommitted changes (staged, unstaged, and untracked files) since the session started. This view is available for sessions that ended within the last 48 hours.</div>
+            <h3 className="font-semibold text-info">
+              {isActive ? "Live Session - Showing All Changes" : "Showing Changes from Session Period"}
+            </h3>
+            <div className="text-sm opacity-70">
+              {isActive
+                ? "This is an active session. Displaying both committed and uncommitted changes (staged, unstaged, and untracked files) made during the session."
+                : session.first_commit_hash === session.latest_commit_hash
+                  ? "No commits were made during this session. Displaying uncommitted changes from the session time period."
+                  : "Displaying changes from commits and work done during the session time period."}
+            </div>
           </div>
         </div>
       )}

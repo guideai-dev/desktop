@@ -100,39 +100,24 @@ export function useSessionProcessing() {
         try {
           // Get session details from database to get cwd and commit hashes
           const sessionDetails = await invoke<any[]>('execute_sql', {
-            sql: 'SELECT cwd, first_commit_hash, latest_commit_hash, session_end_time FROM agent_sessions WHERE session_id = ?',
+            sql: 'SELECT cwd, first_commit_hash, latest_commit_hash, session_start_time, session_end_time FROM agent_sessions WHERE session_id = ?',
             params: [sessionId]
           })
 
           if (sessionDetails[0]?.cwd && sessionDetails[0]?.first_commit_hash) {
             const session = sessionDetails[0]
 
-            // Determine if we should fetch unstaged changes (session ended < 48h ago)
-            const shouldShowUnstaged = (() => {
-              // Check if commits are the same (no commits during session)
-              const noCommitsDuringSession = session.first_commit_hash === session.latest_commit_hash
-              if (!noCommitsDuringSession) {
-                return false
-              }
-
-              // Check if session ended within the last 48 hours
-              if (!session.session_end_time) {
-                return false
-              }
-
-              const now = Date.now()
-              const timeSinceEnd = now - session.session_end_time
-              const fortyEightHours = 48 * 60 * 60 * 1000
-
-              return timeSinceEnd < fortyEightHours && timeSinceEnd >= 0
-            })()
+            // Determine if session is active (no end time)
+            const isActive = !session.session_end_time
 
             // Fetch git diff using same command as Session Changes tab
             const fileDiffs = await invoke<any[]>('get_session_git_diff', {
               cwd: session.cwd,
               firstCommitHash: session.first_commit_hash,
               latestCommitHash: session.latest_commit_hash,
-              isActive: shouldShowUnstaged
+              isActive,
+              sessionStartTime: session.session_start_time || null,
+              sessionEndTime: session.session_end_time || null
             })
 
             // Transform to format expected by git diff processor
@@ -142,7 +127,7 @@ export function useSessionProcessing() {
                   path: f.new_path,
                   stats: f.stats
                 })),
-                isUnstaged: shouldShowUnstaged
+                isUnstaged: isActive
               }
             }
           }
