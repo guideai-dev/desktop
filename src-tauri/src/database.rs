@@ -206,11 +206,11 @@ pub fn update_session(
         (None, None) => None,                               // Both null, stay null
     };
 
-    // Use new git_branch if provided and existing is null, otherwise keep existing
-    let final_git_branch = match (existing_git_branch, git_branch) {
-        (None, Some(new_branch)) => Some(new_branch.to_string()),
-        (Some(existing), _) => Some(existing),
-        (None, None) => None,
+    // Always update git_branch if provided (allows tracking branch switches during session)
+    // This ensures sessions are associated with the branch where work is actually done
+    let final_git_branch = match git_branch {
+        Some(new_branch) => Some(new_branch.to_string()),
+        None => existing_git_branch,
     };
 
     // Use new commit as first_commit_hash if existing is null and we have a commit, otherwise keep existing
