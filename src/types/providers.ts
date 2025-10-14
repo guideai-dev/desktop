@@ -26,6 +26,56 @@ export interface CodingAgent {
   color: string
 }
 
+/**
+ * Operational status of a provider, derived from configuration and watcher state.
+ *
+ * - 'disabled': Provider not active (not configured, disabled, or watcher not running)
+ * - 'local-only': Sessions processed locally without cloud sync (Privacy-first mode)
+ * - 'metrics-only': Only metadata synced (duration, counts), no transcript data
+ * - 'full-sync': Full session data synced to cloud for analytics
+ */
+export type ProviderStatus = 'disabled' | 'local-only' | 'metrics-only' | 'full-sync'
+
+/**
+ * Combined provider metadata and real-time status for display.
+ */
+export interface ProviderInfo {
+  /**
+   * Unique provider identifier (e.g., 'claude-code')
+   */
+  id: string
+
+  /**
+   * Human-readable display name (e.g., 'Claude Code')
+   */
+  name: string
+
+  /**
+   * Current operational status
+   */
+  status: ProviderStatus
+
+  /**
+   * Whether status is being loaded (initial fetch only)
+   */
+  isLoading: boolean
+
+  /**
+   * Error during status calculation, if any
+   */
+  error: Error | null
+}
+
+/**
+ * Type guard to validate ProviderStatus values
+ */
+export function isValidProviderStatus(value: unknown): value is ProviderStatus {
+  return (
+    typeof value === 'string' &&
+    ['disabled', 'local-only', 'metrics-only', 'full-sync'].includes(value)
+  )
+}
+
 // Platform-specific default paths
 const PLATFORM_DEFAULTS: Record<string, Record<string, string>> = {
   'claude-code': {

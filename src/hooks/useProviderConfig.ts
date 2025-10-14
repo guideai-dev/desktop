@@ -16,7 +16,10 @@ export function useSaveProviderConfig() {
   return useMutation({
     mutationFn: ({ providerId, config }: { providerId: string; config: ProviderConfig }) =>
       invoke('save_provider_config_command', { providerId, config }),
-    onSuccess: (_, { providerId }) => {
+    onSuccess: (_, { providerId, config }) => {
+      // Update React Query cache immediately for instant UI updates
+      queryClient.setQueryData(['providerConfig', providerId], config)
+      // Also invalidate to ensure fresh data on next fetch
       queryClient.invalidateQueries({ queryKey: ['providerConfig', providerId] })
     },
   })

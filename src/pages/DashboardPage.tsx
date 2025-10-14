@@ -9,6 +9,9 @@ import { useClaudeWatcherStatus } from '../hooks/useClaudeWatcher'
 import { useCopilotWatcherStatus } from '../hooks/useCopilotWatcher'
 import { useOpenCodeWatcherStatus } from '../hooks/useOpenCodeWatcher'
 import { useCodexWatcherStatus } from '../hooks/useCodexWatcher'
+import { useGeminiWatcherStatus } from '../hooks/useGeminiWatcher'
+import { useProviderStatus } from '../hooks/useProviderStatus'
+import ProviderStatusIndicator from '../components/ProviderStatusIndicator'
 
 function DashboardPage() {
   const navigate = useNavigate()
@@ -20,6 +23,14 @@ function DashboardPage() {
   const { data: copilotStatus } = useCopilotWatcherStatus()
   const { data: opencodeStatus } = useOpenCodeWatcherStatus()
   const { data: codexStatus } = useCodexWatcherStatus()
+  const { data: geminiStatus } = useGeminiWatcherStatus()
+
+  // Get provider statuses
+  const { status: claudeStatusEnum } = useProviderStatus('claude-code')
+  const { status: copilotStatusEnum } = useProviderStatus('github-copilot')
+  const { status: opencodeStatusEnum } = useProviderStatus('opencode')
+  const { status: codexStatusEnum } = useProviderStatus('codex')
+  const { status: geminiStatusEnum } = useProviderStatus('gemini-code')
 
   // Track session activity
   useSessionActivity()
@@ -46,13 +57,14 @@ function DashboardPage() {
 
   const duration = formatDuration(totalDurationMs)
 
-  // Get active providers
+  // Get active providers (show all 5 providers with their status)
   const activeProviders = [
-    { id: 'claude-code', name: 'Claude Code', isRunning: claudeStatus?.is_running },
-    { id: 'github-copilot', name: 'GitHub Copilot', isRunning: copilotStatus?.is_running },
-    { id: 'opencode', name: 'OpenCode', isRunning: opencodeStatus?.is_running },
-    { id: 'codex', name: 'Codex', isRunning: codexStatus?.is_running },
-  ].filter(p => p.isRunning)
+    { id: 'claude-code', name: 'Claude Code', status: claudeStatusEnum },
+    { id: 'github-copilot', name: 'GitHub Copilot', status: copilotStatusEnum },
+    { id: 'opencode', name: 'OpenCode', status: opencodeStatusEnum },
+    { id: 'codex', name: 'Codex', status: codexStatusEnum },
+    { id: 'gemini-code', name: 'Gemini Code', status: geminiStatusEnum },
+  ]
 
   // Get latest 5 sessions
   const latestSessions = sessions.slice(0, 5)
@@ -99,24 +111,24 @@ function DashboardPage() {
         <div className="card bg-base-100 shadow-sm border border-base-300">
           <div className="card-body">
             <h2 className="card-title text-base">Active Providers</h2>
-            {activeProviders.length > 0 ? (
-              <div className="flex flex-col gap-3 mt-2">
-                {activeProviders.map(provider => (
-                  <div key={provider.id} className="flex items-center gap-3">
-                    <ProviderIcon providerId={provider.id} size={32} />
-                    <span className="text-base font-medium">{provider.name}</span>
-                    <div className="w-2 h-2 bg-success rounded-full ml-auto" title="Running" />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-4">
-                <p className="text-base-content/50 text-sm">No active watchers</p>
-                <Link to="/settings" className="link link-primary text-xs mt-1">
-                  Configure providers
+            <div className="flex flex-col gap-3 mt-2">
+              {activeProviders.map(provider => (
+                <Link
+                  key={provider.id}
+                  to={`/provider/${provider.id}`}
+                  className="flex items-center gap-3 hover:bg-base-200 transition-colors"
+                >
+                  <ProviderIcon providerId={provider.id} size={32} />
+                  <span className="text-base font-medium">{provider.name}</span>
+                  <ProviderStatusIndicator
+                    status={provider.status}
+                    size={20}
+                    showTooltip={true}
+                    className="ml-auto"
+                  />
                 </Link>
-              </div>
-            )}
+              ))}
+            </div>
           </div>
         </div>
 
