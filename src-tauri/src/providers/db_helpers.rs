@@ -1,4 +1,4 @@
-use crate::database::{insert_session, session_exists, update_session};
+use crate::database::{insert_session, update_session};
 use crate::logging::{log_debug, log_info, log_warn};
 use chrono::{DateTime, Utc};
 use std::path::PathBuf;
@@ -29,77 +29,6 @@ pub fn insert_session_immediately(
         (None, None)
     };
 
-    // Check if already exists
-    if session_exists(session_id, file_name)? {
-        // Update existing session with new file size and timestamp
-        let (start_time, end_time, _duration) = match extract_session_timing(provider_id, file_path)
-        {
-            Ok(timing) => timing,
-            Err(e) => {
-                let _ = log_warn(
-                    provider_id,
-                    &format!("⚠ Could not extract session timing for update: {} - will update without timing data", e)
-                );
-                (None, None, None)
-            }
-        };
-
-        update_session(
-            session_id,
-            file_name,
-            file_size,
-            file_hash.as_deref(),
-            start_time,
-            end_time,
-            cwd.as_deref(),
-            git_branch.as_deref(),
-            git_commit.as_deref(), // latest_commit_hash (updates on each change)
-        )?;
-
-        // Also link project for existing sessions if CWD is available
-        if let Some(ref cwd_path) = cwd {
-            match crate::project_metadata::extract_project_metadata(cwd_path) {
-                Ok(metadata) => {
-                    match crate::database::insert_or_get_project(
-                        &metadata.project_name,
-                        metadata.git_remote_url.as_deref(),
-                        &metadata.cwd,
-                        &metadata.detected_project_type,
-                    ) {
-                        Ok(project_id) => {
-                            if let Err(e) =
-                                crate::database::attach_session_to_project(session_id, &project_id)
-                            {
-                                let _ = log_debug(
-                                    provider_id,
-                                    &format!(
-                                        "⚠ Failed to attach session to project during update: {}",
-                                        e
-                                    ),
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            let _ = log_debug(
-                                provider_id,
-                                &format!("⚠ Failed to insert/get project during update: {}", e),
-                            );
-                        }
-                    }
-                }
-                Err(_) => {
-                    // Silently skip - project metadata not available
-                }
-            }
-        }
-
-        let _ = log_debug(
-            provider_id,
-            &format!("↻ Session {} updated in database", session_id),
-        );
-        return Ok(());
-    }
-
     // Parse session timing from file
     let (start_time, end_time, duration) = match extract_session_timing(provider_id, file_path) {
         Ok(timing) => timing,
@@ -112,8 +41,9 @@ pub fn insert_session_immediately(
         }
     };
 
-    // Insert into database
-    insert_session(
+    // Try to insert first (optimistic path for new sessions)
+    // If it fails due to unique constraint, update instead
+    let insert_result = insert_session(
         provider_id,
         project_name,
         session_id,
@@ -128,7 +58,65 @@ pub fn insert_session_immediately(
         git_branch.as_deref(),
         git_commit.as_deref(), // first_commit_hash
         git_commit.as_deref(), // latest_commit_hash (same as first at creation)
-    )?;
+    );
+
+    // Handle insert result - if unique constraint violation, update instead
+    match insert_result {
+        Ok(_) => {
+            // Insert succeeded - this is a new session
+            let timing_info = match (start_time, end_time, duration) {
+                (Some(start), Some(end), Some(dur)) => format!(
+                    " | Start: {}, End: {}, Duration: {}ms",
+                    start.format("%H:%M:%S"),
+                    end.format("%H:%M:%S"),
+                    dur
+                ),
+                (Some(start), None, None) => format!(" | Start: {}, End: (none)", start.format("%H:%M:%S")),
+                (None, Some(end), None) => format!(" | Start: (none), End: {}", end.format("%H:%M:%S")),
+                _ => " | No timing data extracted".to_string(),
+            };
+
+            let _ = log_info(
+                provider_id,
+                &format!(
+                    "💾 Session {} saved to local database{}",
+                    session_id, timing_info
+                ),
+            );
+        }
+        Err(e) => {
+            // Check if this is a unique constraint violation
+            let is_constraint_violation = e.to_string().contains("UNIQUE constraint");
+
+            if is_constraint_violation {
+                // Session already exists, update it instead
+                let _ = log_debug(
+                    provider_id,
+                    &format!("Session {} already exists, updating instead", session_id),
+                );
+
+                update_session(
+                    session_id,
+                    file_name,
+                    file_size,
+                    file_hash.as_deref(),
+                    start_time,
+                    end_time,
+                    cwd.as_deref(),
+                    git_branch.as_deref(),
+                    git_commit.as_deref(), // latest_commit_hash (updates on each change)
+                )?;
+
+                let _ = log_debug(
+                    provider_id,
+                    &format!("↻ Session {} updated in database", session_id),
+                );
+            } else {
+                // Some other error, propagate it
+                return Err(Box::new(e));
+            }
+        }
+    }
 
     // Extract and link project if CWD is available
     if let Some(ref cwd_path) = cwd {
@@ -181,26 +169,6 @@ pub fn insert_session_immediately(
             }
         }
     }
-
-    let timing_info = match (start_time, end_time, duration) {
-        (Some(start), Some(end), Some(dur)) => format!(
-            " | Start: {}, End: {}, Duration: {}ms",
-            start.format("%H:%M:%S"),
-            end.format("%H:%M:%S"),
-            dur
-        ),
-        (Some(start), None, None) => format!(" | Start: {}, End: (none)", start.format("%H:%M:%S")),
-        (None, Some(end), None) => format!(" | Start: (none), End: {}", end.format("%H:%M:%S")),
-        _ => " | No timing data extracted".to_string(),
-    };
-
-    let _ = log_info(
-        provider_id,
-        &format!(
-            "💾 Session {} saved to local database{}",
-            session_id, timing_info
-        ),
-    );
 
     Ok(())
 }

@@ -166,6 +166,7 @@ pub fn insert_session(
 }
 
 /// Update an existing session with new activity (file size, timestamp)
+/// Uses a transaction to prevent race conditions during read-modify-write
 pub fn update_session(
     session_id: &str,
     _file_name: &str,  // Kept for API compatibility but not used in query
@@ -177,125 +178,128 @@ pub fn update_session(
     git_branch: Option<&str>,
     latest_commit_hash: Option<&str>,
 ) -> Result<()> {
-    let db_conn = DB_CONNECTION.lock().unwrap();
-    let conn = db_conn
-        .as_ref()
-        .ok_or_else(|| rusqlite::Error::InvalidQuery)?;
+    with_connection_mut(|conn| {
+        // Use a transaction to make read-modify-write atomic
+        let tx = conn.transaction()?;
 
-    let now = Utc::now().timestamp_millis();
+        let now = Utc::now().timestamp_millis();
 
-    // Get the existing start time, end time, cwd, and git fields from database
-    // Query by session_id only since providers like OpenCode have multiple files per session
-    let (existing_start_time_ms, existing_end_time_ms, existing_cwd, existing_git_branch, existing_first_commit, existing_latest_commit): (Option<i64>, Option<i64>, Option<String>, Option<String>, Option<String>, Option<String>) = conn.query_row(
-        "SELECT session_start_time, session_end_time, cwd, git_branch, first_commit_hash, latest_commit_hash FROM agent_sessions WHERE session_id = ?",
-        params![session_id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
-    ).ok().unwrap_or((None, None, None, None, None, None));
+        // Get the existing start time, end time, cwd, and git fields from database
+        // Query by session_id only since providers like OpenCode have multiple files per session
+        let (existing_start_time_ms, existing_end_time_ms, existing_cwd, existing_git_branch, existing_first_commit, existing_latest_commit): (Option<i64>, Option<i64>, Option<String>, Option<String>, Option<String>, Option<String>) = tx.query_row(
+            "SELECT session_start_time, session_end_time, cwd, git_branch, first_commit_hash, latest_commit_hash FROM agent_sessions WHERE session_id = ?",
+            params![session_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+        ).ok().unwrap_or((None, None, None, None, None, None));
 
-    // Use new start time if provided and existing is null, otherwise keep existing
-    let final_start_time_ms = match (existing_start_time_ms, session_start_time) {
-        (None, Some(new_start)) => Some(new_start.timestamp_millis()), // Database has null, use new value
-        (Some(existing), _) => Some(existing), // Keep existing non-null value
-        (None, None) => None,                  // Both null, stay null
-    };
+        // Use new start time if provided and existing is null, otherwise keep existing
+        let final_start_time_ms = match (existing_start_time_ms, session_start_time) {
+            (None, Some(new_start)) => Some(new_start.timestamp_millis()), // Database has null, use new value
+            (Some(existing), _) => Some(existing), // Keep existing non-null value
+            (None, None) => None,                  // Both null, stay null
+        };
 
-    // Use new cwd if provided and existing is null, otherwise keep existing
-    let final_cwd = match (existing_cwd, cwd) {
-        (None, Some(new_cwd)) => Some(new_cwd.to_string()), // Database has null, use new value
-        (Some(existing), _) => Some(existing),              // Keep existing non-null value
-        (None, None) => None,                               // Both null, stay null
-    };
+        // Use new cwd if provided and existing is null, otherwise keep existing
+        let final_cwd = match (existing_cwd, cwd) {
+            (None, Some(new_cwd)) => Some(new_cwd.to_string()), // Database has null, use new value
+            (Some(existing), _) => Some(existing),              // Keep existing non-null value
+            (None, None) => None,                               // Both null, stay null
+        };
 
-    // Always update git_branch if provided (allows tracking branch switches during session)
-    // This ensures sessions are associated with the branch where work is actually done
-    let final_git_branch = match git_branch {
-        Some(new_branch) => Some(new_branch.to_string()),
-        None => existing_git_branch,
-    };
+        // Always update git_branch if provided (allows tracking branch switches during session)
+        // This ensures sessions are associated with the branch where work is actually done
+        let final_git_branch = match git_branch {
+            Some(new_branch) => Some(new_branch.to_string()),
+            None => existing_git_branch,
+        };
 
-    // Use new commit as first_commit_hash if existing is null and we have a commit, otherwise keep existing
-    let final_first_commit = match (existing_first_commit, latest_commit_hash) {
-        (None, Some(new_commit)) => Some(new_commit.to_string()), // Database has null, use new value
-        (Some(existing), _) => Some(existing),                    // Keep existing non-null value
-        (None, None) => None,                                     // Both null, stay null
-    };
+        // Use new commit as first_commit_hash if existing is null and we have a commit, otherwise keep existing
+        let final_first_commit = match (existing_first_commit, latest_commit_hash) {
+            (None, Some(new_commit)) => Some(new_commit.to_string()), // Database has null, use new value
+            (Some(existing), _) => Some(existing),                    // Keep existing non-null value
+            (None, None) => None,                                     // Both null, stay null
+        };
 
-    // Always update latest_commit_hash if provided (this is expected to change)
-    let final_latest_commit = match latest_commit_hash {
-        Some(new_commit) => Some(new_commit.to_string()),
-        None => existing_latest_commit,
-    };
+        // Always update latest_commit_hash if provided (this is expected to change)
+        let final_latest_commit = match latest_commit_hash {
+            Some(new_commit) => Some(new_commit.to_string()),
+            None => existing_latest_commit,
+        };
 
-    // Calculate duration if we have both start and end times
-    let duration_ms = if let (Some(start), Some(end)) = (final_start_time_ms, session_end_time) {
-        Some((end.timestamp_millis() - start).max(0))
-    } else {
-        None
-    };
+        // Calculate duration if we have both start and end times
+        let duration_ms = if let (Some(start), Some(end)) = (final_start_time_ms, session_end_time) {
+            Some((end.timestamp_millis() - start).max(0))
+        } else {
+            None
+        };
 
-    // Detect if session is being completed (first time getting end time)
-    let session_completed = existing_end_time_ms.is_none() && session_end_time.is_some();
+        // Detect if session is being completed (first time getting end time)
+        let session_completed = existing_end_time_ms.is_none() && session_end_time.is_some();
 
-    // Update by session_id only since providers like OpenCode have multiple files per session
-    // Reset core_metrics_status and processing_status to 'pending' since file content has changed
-    conn.execute(
-        "UPDATE agent_sessions
-         SET file_size = ?,
-             file_hash = ?,
-             session_start_time = ?,
-             session_end_time = ?,
-             duration_ms = ?,
-             cwd = ?,
-             git_branch = ?,
-             first_commit_hash = ?,
-             latest_commit_hash = ?,
-             uploaded_at = ?,
-             synced_to_server = 0,
-             core_metrics_status = 'pending',
-             processing_status = 'pending'
-         WHERE session_id = ?",
-        params![
-            file_size as i64,
-            file_hash,
-            final_start_time_ms,
-            session_end_time.map(|t| t.timestamp_millis()),
-            duration_ms,
-            final_cwd,
-            final_git_branch,
-            final_first_commit,
-            final_latest_commit,
-            now,
-            session_id,
-        ],
-    )?;
+        // Update by session_id only since providers like OpenCode have multiple files per session
+        // Reset core_metrics_status and processing_status to 'pending' since file content has changed
+        tx.execute(
+            "UPDATE agent_sessions
+             SET file_size = ?,
+                 file_hash = ?,
+                 session_start_time = ?,
+                 session_end_time = ?,
+                 duration_ms = ?,
+                 cwd = ?,
+                 git_branch = ?,
+                 first_commit_hash = ?,
+                 latest_commit_hash = ?,
+                 uploaded_at = ?,
+                 synced_to_server = 0,
+                 core_metrics_status = 'pending',
+                 processing_status = 'pending'
+             WHERE session_id = ?",
+            params![
+                file_size as i64,
+                file_hash,
+                final_start_time_ms,
+                session_end_time.map(|t| t.timestamp_millis()),
+                duration_ms,
+                final_cwd,
+                final_git_branch,
+                final_first_commit,
+                final_latest_commit,
+                now,
+                session_id,
+            ],
+        )?;
 
-    log_debug(
-        "database",
-        &format!(
-            "↻ Updated session {} (size: {} bytes, needs re-sync)",
-            session_id, file_size
-        ),
-    )
-    .unwrap_or_default();
+        // Commit transaction before emitting events (events are outside transaction)
+        tx.commit()?;
 
-    // Emit event to frontend
-    if let Ok(app_handle_guard) = APP_HANDLE.lock() {
-        if let Some(ref app_handle) = *app_handle_guard {
-            let _ = app_handle.emit("session-updated", session_id);
+        log_debug(
+            "database",
+            &format!(
+                "↻ Updated session {} (size: {} bytes, needs re-sync)",
+                session_id, file_size
+            ),
+        )
+        .unwrap_or_default();
 
-            // Emit session-completed event if this is the first time the session got an end time
-            if session_completed {
-                let _ = app_handle.emit("session-completed", session_id);
-                log_info(
-                    "database",
-                    &format!("✓ Session {} completed, emitted event for metrics processing", session_id),
-                )
-                .unwrap_or_default();
+        // Emit event to frontend (after transaction committed)
+        if let Ok(app_handle_guard) = APP_HANDLE.lock() {
+            if let Some(ref app_handle) = *app_handle_guard {
+                let _ = app_handle.emit("session-updated", session_id);
+
+                // Emit session-completed event if this is the first time the session got an end time
+                if session_completed {
+                    let _ = app_handle.emit("session-completed", session_id);
+                    log_info(
+                        "database",
+                        &format!("✓ Session {} completed, emitted event for metrics processing", session_id),
+                    )
+                    .unwrap_or_default();
+                }
             }
         }
-    }
 
-    Ok(())
+        Ok(())
+    })
 }
 
 /// Check if a session already exists in the database
