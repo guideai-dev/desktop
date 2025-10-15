@@ -69,6 +69,8 @@ lazy_static = "1.4"
 tauri-plugin-http = "2"
 # IndexSet for maintaining insertion order in hash cache
 indexmap = "2.0"
+# Gitignore-aware directory traversal (same as ripgrep)
+ignore = "0.4"
 
 # macOS specific dependencies
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -1587,3 +1587,10 @@ pub async fn get_session_git_diff(
         session_end_time,
     )
 }
+
+/// Scan a directory for context files (CLAUDE.md, AGENTS.md, GEMINI.md)
+/// Respects .gitignore patterns
+#[tauri::command]
+pub async fn scan_context_files(cwd: String) -> Result<Vec<crate::context_files::ContextFile>, String> {
+    crate::context_files::scan_context_files(&cwd)
+}

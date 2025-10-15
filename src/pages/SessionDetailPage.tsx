@@ -32,8 +32,10 @@ import {
   ArrowDownIcon,
   Cog6ToothIcon,
   ChatBubbleLeftRightIcon,
+  DocumentTextIcon,
 } from '@heroicons/react/24/outline'
 import { SessionChangesTab } from '../components/SessionChangesTab'
+import { SessionContextTab } from '../components/SessionContextTab'
 
 interface AgentSession {
   id: string
@@ -124,7 +126,7 @@ export default function SessionDetailPage() {
   const isSessionActive = useSessionActivityStore(state => state.isSessionActive)
 
   // Tab state - default to transcript
-  const [activeTab, setActiveTab] = useState<'phase-timeline' | 'transcript' | 'metrics' | 'changes'>('transcript')
+  const [activeTab, setActiveTab] = useState<'phase-timeline' | 'transcript' | 'metrics' | 'changes' | 'context'>('transcript')
 
   // Fetch session metadata with TanStack Query
   const { data: session, isLoading: loading, error } = useQuery({
@@ -185,6 +187,23 @@ export default function SessionDetailPage() {
       return stats
     },
     enabled: !!session?.cwd && !!session?.first_commit_hash && activeTab !== 'changes',
+  })
+
+  // Fetch context file stats for tab badge (only when Context tab is NOT active)
+  const { data: contextStats } = useQuery({
+    queryKey: ['session-context-stats', sessionId, session?.cwd],
+    queryFn: async () => {
+      if (!session?.cwd) {
+        return null
+      }
+      const files = await invoke<any[]>('scan_context_files', { cwd: session.cwd })
+      const totalSize = files.reduce((sum: number, file: any) => sum + (file.size || 0), 0)
+      return {
+        fileCount: files.length,
+        totalSize,
+      }
+    },
+    enabled: !!session?.cwd && activeTab !== 'context',
   })
 
   // Handle sync session click
@@ -270,6 +289,7 @@ export default function SessionDetailPage() {
   // Load session content and parse into timeline
   const {
     timeline,
+    fileContent,
     loading: contentLoading,
     error: contentError,
   } = useLocalSessionContent(
@@ -359,6 +379,13 @@ export default function SessionDetailPage() {
   // Handler for viewing diff (opens Session Changes tab)
   const handleViewDiff = () => {
     setActiveTab('changes')
+  }
+
+  // Format file size helper
+  const formatSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
 
   const renderTimeline = () => {
@@ -551,6 +578,25 @@ export default function SessionDetailPage() {
               <ChartBarIcon className="w-5 h-5" />
               <span className="hidden md:inline">Metrics</span>
             </button>
+            {session.cwd && (
+              <button
+                className={`tab tab-lg gap-2 ${
+                  activeTab === 'context'
+                    ? 'tab-active bg-base-100 text-primary font-semibold border-b-2 border-primary'
+                    : 'hover:bg-base-300'
+                }`}
+                onClick={() => setActiveTab('context')}
+                title="Context"
+              >
+                <DocumentTextIcon className="w-5 h-5" />
+                <span className="hidden md:inline">Context</span>
+                {activeTab !== 'context' && contextStats && contextStats.fileCount > 0 && (
+                  <span className="badge badge-info badge-sm">
+                    {formatSize(contextStats.totalSize)}
+                  </span>
+                )}
+              </button>
+            )}
             {session.cwd && session.first_commit_hash && (
               <button
                 className={`tab tab-lg gap-2 ${
@@ -686,6 +732,15 @@ export default function SessionDetailPage() {
               session_start_time: session.session_start_time,
               session_end_time: session.session_end_time,
             }}
+          />
+        )}
+        {activeTab === 'context' && session.cwd && (
+          <SessionContextTab
+            session={{
+              sessionId: session.session_id,
+              cwd: session.cwd,
+            }}
+            fileContent={fileContent}
           />
         )}
       </div>

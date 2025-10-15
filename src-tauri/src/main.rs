@@ -5,6 +5,7 @@
 mod auth_server;
 mod commands;
 mod config;
+mod context_files;
 mod database;
 mod error;
 mod events;
@@ -242,7 +243,8 @@ fn main() {
             commands::open_folder_in_os,
             commands::quick_rate_session,
             commands::get_session_rating,
-            commands::get_session_git_diff
+            commands::get_session_git_diff,
+            commands::scan_context_files
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
