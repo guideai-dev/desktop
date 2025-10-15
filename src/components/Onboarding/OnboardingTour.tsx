@@ -78,17 +78,19 @@ export function OnboardingTour() {
     }
   }, [isTourRunning])
 
-  // Scroll AI Processing card into view on step 12
+  // Scroll AI Processing card into view when on Settings page (before step 12 displays)
   useEffect(() => {
-    if (isTourRunning && currentStepIndex === 12) {
-      setTimeout(() => {
+    if (isTourRunning && currentStepIndex === 12 && location.pathname === '/settings') {
+      // Scroll immediately after navigation completes
+      const timer = setTimeout(() => {
         const element = document.querySelector('[data-tour="ai-processing"]')
         if (element) {
           element.scrollIntoView({ behavior: 'smooth', block: 'center' })
         }
-      }, 400)
+      }, 100)
+      return () => clearTimeout(timer)
     }
-  }, [currentStepIndex, isTourRunning])
+  }, [currentStepIndex, isTourRunning, location.pathname])
 
   // Define tour steps
   const steps: Step[] = [
