@@ -28,9 +28,26 @@ apps/desktop/
 │   └── index.css            # Tailwind imports
 ├── src-tauri/               # Rust backend
 │   ├── src/
-│   │   ├── main.rs          # Tauri app entry + system tray
+│   │   ├── main.rs          # Tauri app entry + system tray + event initialization
 │   │   ├── config.rs        # Config file operations
-│   │   └── commands.rs      # Tauri commands for frontend
+│   │   ├── commands.rs      # Tauri commands for frontend
+│   │   ├── database.rs      # Database operations with transactions
+│   │   ├── events/          # Event-driven architecture (NEW)
+│   │   │   ├── mod.rs       # Event exports
+│   │   │   ├── types.rs     # Event type definitions
+│   │   │   ├── bus.rs       # EventBus implementation
+│   │   │   └── handlers.rs  # Database & frontend event handlers
+│   │   ├── providers/       # File watchers for AI providers
+│   │   │   ├── claude_watcher.rs
+│   │   │   ├── copilot_watcher.rs
+│   │   │   ├── opencode_watcher.rs
+│   │   │   ├── codex_watcher.rs
+│   │   │   ├── gemini_watcher.rs
+│   │   │   └── db_helpers.rs
+│   │   ├── upload_queue/    # Async upload processing
+│   │   ├── types.rs         # Type safety wrappers (NEW)
+│   │   ├── shutdown.rs      # Graceful shutdown coordinator (NEW)
+│   │   └── ...
 │   ├── Cargo.toml           # Rust dependencies
 │   ├── tauri.conf.json      # Tauri configuration
 │   └── icons/               # App icons
@@ -55,6 +72,190 @@ apps/desktop/
 - Server has modal z-index override layer for drizzle-cube compatibility
 
 When updating theme colors or base styles, **always update both files** to maintain visual consistency across desktop and server apps.
+
+## Rust Backend Architecture
+
+The desktop application uses an **event-driven architecture** to decouple components and ensure reliable data flow. This was implemented as part of a comprehensive Rust improvements initiative (see `RUST_IMPROVEMENTS_PLAN.md`).
+
+### Event-Driven Architecture
+
+#### Core Components
+
+1. **EventBus** (`src/events/bus.rs`)
+   - Publish-subscribe pattern using `tokio::sync::broadcast`
+   - Distributes session events to multiple handlers
+   - Sequenced events for ordering guarantees
+   - 1000-event buffer capacity
+
+2. **Event Types** (`src/events/types.rs`)
+   - `SessionEvent`: Main event wrapper with sequence, timestamp, provider
+   - `SessionEventPayload`: Enum of event types
+     - `SessionChanged`: New/updated session detected
+     - `Completed`: Session finished (has end time)
+     - `Failed`: Session processing failed
+
+3. **Event Handlers** (`src/events/handlers.rs`)
+   - `DatabaseEventHandler`: Writes events to SQLite database
+   - `FrontendEventHandler`: Emits Tauri events to React UI
+   - Both support graceful shutdown via `ShutdownCoordinator`
+
+#### Data Flow
+
+```
+Provider Watcher                EventBus                 Handlers
+    (Claude,                                           (Database,
+     Copilot,          ┌──────────────────┐            Frontend)
+     etc.)             │                  │
+       │               │  SessionEvent    │
+       │  publish()    │  ┌────────────┐  │
+       ├──────────────►│  │ Sequence   │  │
+       │               │  │ Timestamp  │  │──subscribe()──┐
+       │               │  │ Provider   │  │               │
+       │               │  │ Payload    │  │               ▼
+       │               │  └────────────┘  │         DatabaseEventHandler
+       │               │                  │               │
+       │               └──────────────────┘               │
+       │                                                  ├─► insert_session()
+       │                                                  │
+       │                                                  ▼
+       │                                            FrontendEventHandler
+       │                                                  │
+       │                                                  └─► emit("session-updated")
+       │
+     File System
+```
+
+**Benefits:**
+- Watchers don't directly touch database (loose coupling)
+- Multiple handlers process same event (extensibility)
+- Async processing without blocking watchers
+- Easy to add metrics, logging, or analytics handlers
+
+### Database Layer
+
+#### Transaction Safety (`src/database.rs`)
+
+All database operations use **transactions** to prevent race conditions:
+
+```rust
+// Example: update_session() uses transaction for atomicity
+with_connection_mut(|conn| {
+    let tx = conn.transaction()?;
+
+    // Read existing data
+    let (existing_start, existing_cwd, ...) = tx.query_row(...)?;
+
+    // Modify and write
+    tx.execute("UPDATE ...", ...)?;
+
+    // Commit atomically
+    tx.commit()?;
+})
+```
+
+**Key Improvements:**
+- Atomic read-modify-write operations
+- No lost updates from concurrent threads
+- Consistent state across operations
+
+#### Connection Management
+
+- **Retry Logic**: 3 attempts with 100ms delay between retries
+- Handles temporary SQLite lock contention
+- Global static connection with `Mutex` protection
+
+```rust
+// Retry logic for database connection
+fn get_db_connection() -> Result<MutexGuard<'static, Option<Connection>>> {
+    const MAX_RETRIES: u32 = 3;
+    const RETRY_DELAY: Duration = Duration::from_millis(100);
+
+    for attempt in 0..MAX_RETRIES {
+        match DB_CONNECTION.lock() {
+            Ok(guard) => return Ok(guard),
+            Err(_) if attempt < MAX_RETRIES - 1 => {
+                std::thread::sleep(RETRY_DELAY);
+                continue;
+            }
+            Err(_) => return Err(rusqlite::Error::InvalidQuery),
+        }
+    }
+    unreachable!()
+}
+```
+
+### Type Safety (`src/types.rs`)
+
+Newtype wrappers provide compile-time safety for domain types:
+
+```rust
+pub struct SessionId(String);  // Can't mix with ProjectId
+pub struct ProjectId(String);  // Type-safe identifiers
+```
+
+**Benefits:**
+- Prevent accidentally passing wrong ID type
+- Better IDE autocomplete and type checking
+- Self-documenting function signatures
+- Available for gradual adoption across codebase
+
+### Graceful Shutdown (`src/shutdown.rs`)
+
+The `ShutdownCoordinator` ensures clean application exit:
+
+```rust
+// Initialized at startup
+let shutdown = ShutdownCoordinator::new();
+
+// Event handlers listen for shutdown
+tokio::select! {
+    event = event_rx.recv() => { /* process */ }
+    _ = shutdown_rx.recv() => {
+        // Graceful shutdown - flush events, close connections
+        break;
+    }
+}
+```
+
+**Features:**
+- Broadcast-based coordination
+- Handlers can finish in-flight work
+- No lost events on exit
+- Supports multiple subscribers
+
+### Provider Watchers
+
+Each AI provider (Claude, Copilot, OpenCode, Codex, Gemini) has a dedicated file watcher:
+
+**Architecture:**
+- Monitor provider-specific file paths
+- Detect session file changes (size, timestamp)
+- Extract metadata (CWD, git info, timing)
+- Publish `SessionEvent` to EventBus
+- Track session state in memory
+
+**Example: Claude Watcher**
+```rust
+// Detect file change
+if is_new_session {
+    event_bus.publish("claude", SessionEventPayload::SessionChanged {
+        session_id,
+        project_name,
+        file_path,
+        file_size,
+    })?;
+}
+```
+
+### Upload Queue (`src/upload_queue/`)
+
+Asynchronous upload processing with modular architecture (see `upload_queue/CLAUDE.md`):
+
+- **Retry Logic**: Exponential backoff for server/network errors
+- **Deduplication**: SHA256 hashing prevents duplicate uploads
+- **Concurrency**: Max 3 parallel uploads
+- **Validation**: JSONL timestamp checking
+- **Compression**: Gzip for efficient transfer
 
 ## Configuration
 
@@ -245,12 +446,32 @@ pnpm tauri:build
 
 ## Key Architectural Decisions
 
-1. **Shared Config**: Same config file as CLI for seamless experience
-2. **Menubar Design**: Compact, always-accessible interface
-3. **Native Performance**: Rust backend for file operations
-4. **OAuth Integration**: Browser-based authentication flow
-5. **Responsive UI**: Adapts to small menubar window
-6. **Auto-hide**: Unobtrusive user experience
+1. **Event-Driven Architecture**: Decoupled components communicate via EventBus
+   - Watchers publish events, handlers consume them
+   - Enables extensibility without modifying existing code
+   - Clean separation of concerns (file watching vs database vs UI)
+
+2. **Transaction Safety**: All database operations use SQLite transactions
+   - Prevents race conditions in concurrent access
+   - Ensures data consistency across operations
+   - Atomic read-modify-write patterns
+
+3. **Graceful Shutdown**: Coordinated shutdown across async components
+   - No lost events or incomplete operations
+   - Handlers finish in-flight work before exit
+   - Clean resource cleanup
+
+4. **Shared Config**: Same config file as CLI for seamless experience
+
+5. **Menubar Design**: Compact, always-accessible interface
+
+6. **Native Performance**: Rust backend for file operations and concurrent processing
+
+7. **OAuth Integration**: Browser-based authentication flow
+
+8. **Responsive UI**: Adapts to small menubar window
+
+9. **Auto-hide**: Unobtrusive user experience
 
 ## Platform Considerations
 
@@ -289,10 +510,50 @@ pnpm tauri:build
 - **Type Safety**: Shared types from `@guideai/types`
 - **Consistent UI**: Matches server app design language
 
+## Completed Improvements
+
+See `RUST_IMPROVEMENTS_PLAN.md` for full details of the 4-phase improvement initiative.
+
+✅ **Phase 1: Critical Fixes** - Transaction safety for database operations
+  - Atomic read-modify-write operations prevent race conditions
+  - No lost updates from concurrent threads
+  - Consistent state across all database operations
+
+✅ **Phase 2: Code Deduplication** - Extracted common provider watcher code
+  - Created `providers/common/` module with shared utilities
+  - `SessionState` module for unified session tracking logic
+  - `file_utils.rs` for common file filtering and validation
+  - `watcher_status.rs` for generic status types
+  - `constants.rs` for timing/size thresholds
+  - Eliminated ~900 lines of duplicated code across 5 providers
+
+✅ **Phase 3: Event-Driven Architecture** - Decoupled components via EventBus
+  - Watchers publish events, handlers consume them
+  - Enables extensibility without modifying existing code
+  - Clean separation: file watching → database → UI
+  - Fixed session state tracking bugs
+
+✅ **Phase 4: Type Safety & Polish** - Production-ready reliability
+  - SessionId and ProjectId newtypes for compile-time safety
+  - Database connection retry logic (3 attempts, 100ms delay)
+  - Graceful shutdown coordination for clean exits
+  - Event handlers flush in-flight work before shutdown
+
+✅ **Upload Queue Refactoring** - Modular, maintainable architecture
+  - Concurrent uploads with retry and deduplication
+  - SHA256 hashing prevents duplicate uploads
+  - Exponential backoff for server/network errors
+  - 69 tests, all passing
+
 ## Future Enhancements
 
-- **File Scanning**: Background file processing
-- **Notifications**: Status updates and alerts
-- **Quick Actions**: Upload and manage files
-- **Settings Panel**: Advanced configuration options
-- **Auto-updates**: Seamless app updates
+### Observability & Monitoring
+- **Metrics & Telemetry**: Add observability for upload success rates and performance
+- **Event Persistence**: Optional EventStore for debugging and event replay
+- **Persistent Queue**: Crash recovery for upload queue
+
+### User Experience
+- **DB Trigger/Notification**: Replace polling with reactive updates
+- **Desktop Notifications**: Status updates for session completion and upload status
+- **Settings Panel**: Advanced configuration UI
+- **Auto-updates**: Seamless app updates (partially implemented)
