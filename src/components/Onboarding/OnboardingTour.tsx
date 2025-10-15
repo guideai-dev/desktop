@@ -303,30 +303,12 @@ export function OnboardingTour() {
         // Step 11 -> 12: Navigate to Settings for AI Processing
         else if (index === 11 && action === ACTIONS.NEXT) {
           navigate('/settings')
-          // Wait for navigation, scroll AI Processing into view, then advance step
-          setTimeout(() => {
-            const element = document.querySelector('[data-tour="ai-processing"]')
-            if (element) {
-              element.scrollIntoView({ behavior: 'instant', block: 'center' })
-            }
-            // Advance step after scroll completes
-            setTimeout(() => setStepIndex(nextIndex), 100)
-          }, 300)
+          setTimeout(() => setStepIndex(nextIndex), 300)
         }
         // Step 12 -> 13: Navigate back to Dashboard for sync status
         else if (index === 12 && action === ACTIONS.NEXT) {
           navigate('/')
-          // Wait for navigation, scroll main content to top, then advance step
-          setTimeout(() => {
-            // Find the scrollable main content element
-            const mainElement = document.querySelector('main')
-            if (mainElement) {
-              mainElement.scrollTop = 0
-            }
-
-            // Advance step after scroll completes
-            setTimeout(() => setStepIndex(nextIndex), 150)
-          }, 300)
+          setTimeout(() => setStepIndex(nextIndex), 300)
         }
         // Going backwards: Step 3 -> 2
         else if (index === 3 && action === ACTIONS.PREV) {
@@ -416,6 +398,8 @@ export function OnboardingTour() {
           skip: 'Skip Tour',
         }}
         disableScrolling={false}
+        scrollToFirstStep={true}
+        scrollOffset={100}
         spotlightPadding={4}
       />
     </>
