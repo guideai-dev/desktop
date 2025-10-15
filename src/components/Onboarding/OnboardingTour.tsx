@@ -58,6 +58,16 @@ function CustomTooltip({
   )
 }
 
+// Helper function to restore scrolling on all potentially affected elements
+function restoreScrolling() {
+  document.body.style.overflow = ''
+  document.documentElement.style.overflow = ''
+  const mainElement = document.querySelector('main')
+  if (mainElement instanceof HTMLElement) {
+    mainElement.style.overflow = ''
+  }
+}
+
 export function OnboardingTour() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -72,9 +82,12 @@ export function OnboardingTour() {
   // Ensure scrolling is re-enabled when tour ends
   useEffect(() => {
     if (!isTourRunning) {
-      // Remove any overflow hidden that Joyride might have added
-      document.body.style.overflow = ''
-      document.documentElement.style.overflow = ''
+      // Use a slight delay to ensure Joyride has fully unmounted
+      const timer = setTimeout(() => {
+        restoreScrolling()
+      }, 100)
+
+      return () => clearTimeout(timer)
     }
   }, [isTourRunning])
 
@@ -271,12 +284,24 @@ export function OnboardingTour() {
       // Handle tour completion or skipping
       if (status === STATUS.FINISHED || status === STATUS.SKIPPED) {
         completeTour()
+
+        // Immediately restore scrolling on all potentially affected elements
+        setTimeout(() => {
+          restoreScrolling()
+        }, 50)
+
         return
       }
 
       // Handle close button
       if (action === ACTIONS.CLOSE) {
         stopTour()
+
+        // Immediately restore scrolling on all potentially affected elements
+        setTimeout(() => {
+          restoreScrolling()
+        }, 50)
+
         return
       }
 
