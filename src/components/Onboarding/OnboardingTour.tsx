@@ -78,19 +78,6 @@ export function OnboardingTour() {
     }
   }, [isTourRunning])
 
-  // Scroll AI Processing card into view when on Settings page (before step 12 displays)
-  useEffect(() => {
-    if (isTourRunning && currentStepIndex === 12 && location.pathname === '/settings') {
-      // Scroll immediately after navigation completes
-      const timer = setTimeout(() => {
-        const element = document.querySelector('[data-tour="ai-processing"]')
-        if (element) {
-          element.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        }
-      }, 100)
-      return () => clearTimeout(timer)
-    }
-  }, [currentStepIndex, isTourRunning, location.pathname])
 
   // Define tour steps
   const steps: Step[] = [
@@ -316,7 +303,15 @@ export function OnboardingTour() {
         // Step 11 -> 12: Navigate to Settings for AI Processing
         else if (index === 11 && action === ACTIONS.NEXT) {
           navigate('/settings')
-          setTimeout(() => setStepIndex(nextIndex), 300)
+          // Wait for navigation, scroll AI Processing into view, then advance step
+          setTimeout(() => {
+            const element = document.querySelector('[data-tour="ai-processing"]')
+            if (element) {
+              element.scrollIntoView({ behavior: 'instant', block: 'center' })
+            }
+            // Advance step after scroll completes
+            setTimeout(() => setStepIndex(nextIndex), 100)
+          }, 300)
         }
         // Step 12 -> 13: Navigate back to Dashboard for sync status
         else if (index === 12 && action === ACTIONS.NEXT) {
