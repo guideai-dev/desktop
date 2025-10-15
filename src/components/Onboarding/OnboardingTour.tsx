@@ -316,7 +316,12 @@ export function OnboardingTour() {
         // Step 12 -> 13: Navigate back to Dashboard for sync status
         else if (index === 12 && action === ACTIONS.NEXT) {
           navigate('/')
-          setTimeout(() => setStepIndex(nextIndex), 300)
+          // Wait for navigation, scroll to top, then advance step
+          setTimeout(() => {
+            window.scrollTo({ top: 0, behavior: 'instant' })
+            // Advance step after scroll completes
+            setTimeout(() => setStepIndex(nextIndex), 100)
+          }, 300)
         }
         // Going backwards: Step 3 -> 2
         else if (index === 3 && action === ACTIONS.PREV) {
