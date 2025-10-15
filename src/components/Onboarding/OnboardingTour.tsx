@@ -78,6 +78,18 @@ export function OnboardingTour() {
     }
   }, [isTourRunning])
 
+  // Scroll AI Processing card into view on step 12
+  useEffect(() => {
+    if (isTourRunning && currentStepIndex === 12) {
+      setTimeout(() => {
+        const element = document.querySelector('[data-tour="ai-processing"]')
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      }, 400)
+    }
+  }, [currentStepIndex, isTourRunning])
+
   // Define tour steps
   const steps: Step[] = [
     {
