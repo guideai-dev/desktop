@@ -12,7 +12,7 @@ function ConfigurationPage() {
       </div>
 
       <div className="space-y-3">
-        {CODING_AGENTS.map((agent) => (
+        {CODING_AGENTS.map(agent => (
           <AgentConfig key={agent.id} agent={agent} />
         ))}
       </div>

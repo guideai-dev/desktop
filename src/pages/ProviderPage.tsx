@@ -26,7 +26,13 @@ function ProviderPage() {
   if (showLogs) {
     return (
       <div className="-mx-6 -mt-6 h-[calc(100vh-60px)] flex flex-col overflow-hidden max-w-none">
-        <LogViewer provider={providerId || ''} fullHeight showBackButton onBack={() => setShowLogs(false)} providerName={agent.name} />
+        <LogViewer
+          provider={providerId || ''}
+          fullHeight
+          showBackButton
+          onBack={() => setShowLogs(false)}
+          providerName={agent.name}
+        />
       </div>
     )
   }

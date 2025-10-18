@@ -22,7 +22,7 @@ export function useSessionIngest() {
     let unlisten: (() => void) | null = null
 
     const setupListener = async () => {
-      unlisten = await listen<SessionDetectedPayload>('session-detected', async (event) => {
+      unlisten = await listen<SessionDetectedPayload>('session-detected', async event => {
         const payload = event.payload
 
         // Check if session already exists to avoid duplicates

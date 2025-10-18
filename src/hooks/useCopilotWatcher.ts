@@ -20,8 +20,7 @@ export function useStartCopilotWatcher() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (projects: string[]) =>
-      invoke<void>('start_copilot_watcher', { projects }),
+    mutationFn: (projects: string[]) => invoke<void>('start_copilot_watcher', { projects }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['copilot-watcher-status'] })
     },

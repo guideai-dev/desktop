@@ -1,19 +1,18 @@
-import React, { useState } from "react";
-import { Cog6ToothIcon } from "@heroicons/react/24/outline";
-import { useAuth } from "../hooks/useAuth";
+import React, { useState } from 'react'
+import { Cog6ToothIcon } from '@heroicons/react/24/outline'
+import { useAuth } from '../hooks/useAuth'
 
-const DEFAULT_SERVER_URL =
-  import.meta.env.VITE_SERVER_URL?.trim() || "https://be.guideai.dev";
+const DEFAULT_SERVER_URL = import.meta.env.VITE_SERVER_URL?.trim() || 'https://be.guideai.dev'
 
 export default function Login() {
-  const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL);
-  const [showServerUrl, setShowServerUrl] = useState(false);
-  const { login, isLoggingIn } = useAuth();
+  const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL)
+  const [showServerUrl, setShowServerUrl] = useState(false)
+  const { login, isLoggingIn } = useAuth()
 
   const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    login(serverUrl);
-  };
+    e.preventDefault()
+    login(serverUrl)
+  }
 
   return (
     <div className="card bg-base-200 shadow-lg">
@@ -34,9 +33,7 @@ export default function Login() {
               <h1 className="text-xl font-bold text-primary">GuideAI</h1>
             </div>
           </div>
-          <h2 className="text-base font-medium text-base-content/80">
-            Sign In to Continue
-          </h2>
+          <h2 className="text-base font-medium text-base-content/80">Sign In to Continue</h2>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -49,7 +46,7 @@ export default function Login() {
                 type="url"
                 className="input input-bordered input-sm"
                 value={serverUrl}
-                onChange={(e) => setServerUrl(e.target.value)}
+                onChange={e => setServerUrl(e.target.value)}
                 placeholder="https://api.guideai.com"
                 disabled={isLoggingIn}
               />
@@ -57,18 +54,14 @@ export default function Login() {
           )}
 
           <div className="card-actions justify-center">
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={isLoggingIn || !serverUrl}
-            >
+            <button type="submit" className="btn btn-primary" disabled={isLoggingIn || !serverUrl}>
               {isLoggingIn ? (
                 <>
                   <span className="loading loading-spinner loading-sm"></span>
                   Signing In...
                 </>
               ) : (
-                "Sign In"
+                'Sign In'
               )}
             </button>
           </div>
@@ -94,5 +87,5 @@ export default function Login() {
         </div>
       </div>
     </div>
-  );
+  )
 }

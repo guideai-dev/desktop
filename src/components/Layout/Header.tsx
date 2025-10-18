@@ -25,7 +25,7 @@ function Header() {
   }, [checkForUpdates])
 
   const toggleTheme = () => {
-    setTheme(prev => prev === 'guideai-dark' ? 'guideai-light' : 'guideai-dark')
+    setTheme(prev => (prev === 'guideai-dark' ? 'guideai-light' : 'guideai-dark'))
   }
 
   const handleLogout = async () => {
@@ -52,7 +52,11 @@ function Header() {
         <div className="flex items-center gap-0.5">
           <div className="avatar">
             <div className="w-8 rounded">
-              <img src="/logo-44-optimized.png" alt="GuideAI" className="w-full h-full object-contain" />
+              <img
+                src="/logo-44-optimized.png"
+                alt="GuideAI"
+                className="w-full h-full object-contain"
+              />
             </div>
           </div>
           <div>
@@ -70,7 +74,12 @@ function Header() {
               title={`Update available: v${latestVersion}`}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                />
               </svg>
               <span className="hidden sm:inline">Update</span>
             </button>
@@ -140,41 +149,38 @@ function Header() {
           {/* User Info or Login */}
           {user ? (
             <div className="flex items-center gap-2">
-            <div className="text-right">
-              <div className="text-sm font-medium">{user.name || user.username || 'User'}</div>
-              <div className="text-xs text-base-content/70">@{user.username}</div>
-            </div>
-            <div className="avatar hidden sm:block">
-              <div className="w-6 rounded-full">
-                {user.avatarUrl ? (
-                  <img alt={user.name || user.username || 'User'} src={user.avatarUrl} />
-                ) : (
-                  <div className="bg-primary text-primary-content w-full h-full flex items-center justify-center text-sm font-medium">
-                    {(user.name || user.username || 'U').charAt(0).toUpperCase()}
-                  </div>
-                )}
+              <div className="text-right">
+                <div className="text-sm font-medium">{user.name || user.username || 'User'}</div>
+                <div className="text-xs text-base-content/70">@{user.username}</div>
               </div>
-            </div>
-            <button
-              onClick={handleLogout}
-              className="btn btn-ghost btn-sm btn-circle text-error"
-              title="Logout"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-                />
-              </svg>
+              <div className="avatar hidden sm:block">
+                <div className="w-6 rounded-full">
+                  {user.avatarUrl ? (
+                    <img alt={user.name || user.username || 'User'} src={user.avatarUrl} />
+                  ) : (
+                    <div className="bg-primary text-primary-content w-full h-full flex items-center justify-center text-sm font-medium">
+                      {(user.name || user.username || 'U').charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="btn btn-ghost btn-sm btn-circle text-error"
+                title="Logout"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                  />
+                </svg>
               </button>
             </div>
           ) : (
-            <button
-              onClick={handleLoginClick}
-              className="btn btn-primary btn-sm"
-            >
+            <button onClick={handleLoginClick} className="btn btn-primary btn-sm">
               Login
             </button>
           )}

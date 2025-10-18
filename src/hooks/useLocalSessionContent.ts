@@ -4,7 +4,7 @@ import {
   sessionRegistry,
   messageProcessorRegistry,
   type BaseSessionMessage,
-  type ProcessedTimeline
+  type ProcessedTimeline,
 } from '@guideai-dev/session-processing/ui'
 
 interface UseLocalSessionContentResult {
@@ -57,7 +57,11 @@ export function useLocalSessionContent(
   provider: string | undefined,
   filePath: string | undefined
 ): UseLocalSessionContentResult {
-  const { data, isLoading: loading, error } = useQuery({
+  const {
+    data,
+    isLoading: loading,
+    error,
+  } = useQuery({
     queryKey: ['session-content', sessionId, provider, filePath],
     queryFn: () => fetchSessionContent(sessionId!, provider!, filePath!),
     enabled: !!(sessionId && provider && filePath),

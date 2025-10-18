@@ -8,7 +8,6 @@ export interface ClaudeWatcherStatus {
   failed_uploads: number
 }
 
-
 export interface LogEntry {
   timestamp: string
   level: string
@@ -25,13 +24,11 @@ export function useClaudeWatcherStatus() {
   })
 }
 
-
 export function useStartClaudeWatcher() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (projects: string[]) =>
-      invoke<void>('start_claude_watcher', { projects }),
+    mutationFn: (projects: string[]) => invoke<void>('start_claude_watcher', { projects }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['claude-watcher-status'] })
     },
@@ -49,14 +46,14 @@ export function useStopClaudeWatcher() {
   })
 }
 
-
 export function useProviderLogs(provider: string, maxLines?: number) {
   return useQuery({
     queryKey: ['provider-logs', provider, maxLines],
-    queryFn: () => invoke<LogEntry[]>('get_provider_logs', {
-      provider,
-      maxLines
-    }),
+    queryFn: () =>
+      invoke<LogEntry[]>('get_provider_logs', {
+        provider,
+        maxLines,
+      }),
     refetchInterval: 5000, // Poll every 5 seconds
     enabled: !!provider,
   })

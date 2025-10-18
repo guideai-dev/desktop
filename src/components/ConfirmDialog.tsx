@@ -29,12 +29,15 @@ export default function ConfirmDialog({
   }
 
   return (
-    <div className="modal modal-open" onClick={(e) => {
-      // Prevent closing modal by clicking backdrop
-      if (e.target === e.currentTarget) {
-        e.stopPropagation()
-      }
-    }}>
+    <div
+      className="modal modal-open"
+      onClick={e => {
+        // Prevent closing modal by clicking backdrop
+        if (e.target === e.currentTarget) {
+          e.stopPropagation()
+        }
+      }}
+    >
       <div className="modal-box">
         <h3 className="font-bold text-lg mb-4">{title}</h3>
         <p className="text-sm text-base-content/70 whitespace-pre-wrap">{message}</p>
@@ -42,7 +45,7 @@ export default function ConfirmDialog({
           <button
             type="button"
             className={`btn btn-sm ${variantClasses[variant]}`}
-            onClick={(e) => {
+            onClick={e => {
               e.preventDefault()
               e.stopPropagation()
               onConfirm()
@@ -53,7 +56,7 @@ export default function ConfirmDialog({
           <button
             type="button"
             className="btn btn-sm btn-ghost"
-            onClick={(e) => {
+            onClick={e => {
               e.preventDefault()
               e.stopPropagation()
               onCancel()

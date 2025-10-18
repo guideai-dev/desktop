@@ -20,8 +20,7 @@ export function useStartOpenCodeWatcher() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (projects: string[]) =>
-      invoke<void>('start_opencode_watcher', { projects }),
+    mutationFn: (projects: string[]) => invoke<void>('start_opencode_watcher', { projects }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['opencode-watcher-status'] })
     },

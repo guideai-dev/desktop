@@ -16,33 +16,33 @@ interface ToastState {
   clearAll: () => void
 }
 
-export const useToastStore = create<ToastState>((set) => ({
+export const useToastStore = create<ToastState>(set => ({
   toasts: [],
 
-  addToast: (toast) => {
+  addToast: toast => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
     const newToast: Toast = { id, ...toast }
 
-    set((state) => ({
-      toasts: [...state.toasts, newToast]
+    set(state => ({
+      toasts: [...state.toasts, newToast],
     }))
 
     // Auto-dismiss after duration (default 5 seconds)
     const duration = toast.duration || 5000
     setTimeout(() => {
-      set((state) => ({
-        toasts: state.toasts.filter((t) => t.id !== id)
+      set(state => ({
+        toasts: state.toasts.filter(t => t.id !== id),
       }))
     }, duration)
   },
 
-  removeToast: (id) => {
-    set((state) => ({
-      toasts: state.toasts.filter((t) => t.id !== id)
+  removeToast: id => {
+    set(state => ({
+      toasts: state.toasts.filter(t => t.id !== id),
     }))
   },
 
   clearAll: () => {
     set({ toasts: [] })
-  }
+  },
 }))

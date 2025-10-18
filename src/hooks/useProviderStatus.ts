@@ -74,12 +74,22 @@ export function useProviderStatus(providerId: string): UseProviderStatusResult {
       case 'gemini-code':
         return geminiWatcher
       default:
-        return { data: undefined, isLoading: false, error: new Error(`Unknown provider: ${providerId}`), refetch: async () => {} }
+        return {
+          data: undefined,
+          isLoading: false,
+          error: new Error(`Unknown provider: ${providerId}`),
+          refetch: async () => {},
+        }
     }
   }, [providerId, claudeWatcher, copilotWatcher, opencodeWatcher, codexWatcher, geminiWatcher])
 
   // Get provider config from React Query (single source of truth)
-  const { data: config, isLoading: configLoading, error: configError, refetch: refetchConfig } = useProviderConfig(providerId)
+  const {
+    data: config,
+    isLoading: configLoading,
+    error: configError,
+    refetch: refetchConfig,
+  } = useProviderConfig(providerId)
 
   // Get agent to access default home directory
   const agent = useMemo(() => CODING_AGENTS.find(a => a.id === providerId), [providerId])

@@ -35,7 +35,7 @@ function AppContent() {
 
   useEffect(() => {
     // Listen for navigation events from the menubar window
-    const unlisten = listen('navigate', (event) => {
+    const unlisten = listen('navigate', event => {
       const route = event.payload as string
       navigate(route)
     })
@@ -79,16 +79,19 @@ function App() {
   const { isReady: isDbReady, error: dbError } = useDatabase()
 
   // Get theme from localStorage or default to light
-  const theme = typeof window !== 'undefined'
-    ? (localStorage.getItem('theme') || 'guideai-light')
-    : 'guideai-light'
+  const theme =
+    typeof window !== 'undefined'
+      ? localStorage.getItem('theme') || 'guideai-light'
+      : 'guideai-light'
 
   if (isLoading || !isDbReady) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-base-100" data-theme={theme}>
         <div className="text-center">
           <span className="loading loading-spinner loading-lg"></span>
-          {!isDbReady && <p className="mt-4 text-sm text-base-content/70">Initializing database...</p>}
+          {!isDbReady && (
+            <p className="mt-4 text-sm text-base-content/70">Initializing database...</p>
+          )}
         </div>
       </div>
     )
@@ -99,7 +102,12 @@ function App() {
       <div className="flex items-center justify-center min-h-screen bg-base-100" data-theme={theme}>
         <div className="alert alert-error max-w-md">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
           </svg>
           <div>
             <div className="font-bold">Database Error</div>

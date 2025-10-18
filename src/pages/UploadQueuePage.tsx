@@ -11,7 +11,13 @@ import {
 } from '../hooks/useUploadQueue'
 import { useAuth } from '../hooks/useAuth'
 import LogViewer from '../components/LogViewer'
-import { ClipboardDocumentIcon, ArrowPathIcon, XMarkIcon, DocumentTextIcon, ChevronLeftIcon } from '@heroicons/react/24/outline'
+import {
+  ClipboardDocumentIcon,
+  ArrowPathIcon,
+  XMarkIcon,
+  DocumentTextIcon,
+  ChevronLeftIcon,
+} from '@heroicons/react/24/outline'
 
 function UploadQueuePage() {
   const { user } = useAuth()
@@ -34,7 +40,6 @@ function UploadQueuePage() {
     }
   }
 
-
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -43,25 +48,13 @@ function UploadQueuePage() {
 
   const getStatusBadge = (item: UploadItem, isPending: boolean) => {
     if (item.last_error) {
-      return (
-        <div className="badge badge-error badge-sm">
-          Failed ({item.retry_count}/3)
-        </div>
-      )
+      return <div className="badge badge-error badge-sm">Failed ({item.retry_count}/3)</div>
     }
     if (isPending && item.next_retry_at) {
-      return (
-        <div className="badge badge-warning badge-sm">
-          Retrying...
-        </div>
-      )
+      return <div className="badge badge-warning badge-sm">Retrying...</div>
     }
     if (isPending) {
-      return (
-        <div className="badge badge-info badge-sm">
-          Pending
-        </div>
-      )
+      return <div className="badge badge-info badge-sm">Pending</div>
     }
     return null
   }
@@ -75,16 +68,18 @@ function UploadQueuePage() {
         <div className="card-body p-3">
           <div className="flex items-center gap-3">
             {/* Status badge */}
-            <div className="shrink-0">
-              {getStatusBadge(item, isPending)}
-            </div>
+            <div className="shrink-0">{getStatusBadge(item, isPending)}</div>
 
             {/* File info */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="font-medium text-sm font-mono" title={item.file_name}>{displayId}</span>
+                <span className="font-medium text-sm font-mono" title={item.file_name}>
+                  {displayId}
+                </span>
                 <span className="badge badge-ghost badge-sm shrink-0">{item.provider}</span>
-                <span className="text-xs text-base-content/60 shrink-0">{formatFileSize(item.file_size)}</span>
+                <span className="text-xs text-base-content/60 shrink-0">
+                  {formatFileSize(item.file_size)}
+                </span>
               </div>
               {item.last_error && (
                 <div className="text-xs text-error truncate mt-1" title={item.last_error}>
@@ -94,7 +89,10 @@ function UploadQueuePage() {
             </div>
 
             {/* Project name */}
-            <div className="text-xs text-base-content/60 shrink-0 max-w-[200px] truncate" title={item.project_name}>
+            <div
+              className="text-xs text-base-content/60 shrink-0 max-w-[200px] truncate"
+              title={item.project_name}
+            >
               {item.project_name}
             </div>
 
@@ -141,9 +139,7 @@ function UploadQueuePage() {
       <div className="p-6">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-base-content">Upload Queue</h1>
-          <p className="text-sm text-base-content/70">
-            Manage pending and failed session uploads
-          </p>
+          <p className="text-sm text-base-content/70">Manage pending and failed session uploads</p>
         </div>
 
         <div className="card bg-base-100 shadow-sm border border-base-300">
@@ -168,16 +164,15 @@ function UploadQueuePage() {
         <div className="p-4 border-b border-base-300 bg-base-100">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <button
-                onClick={() => setShowLogs(false)}
-                className="btn btn-sm btn-ghost"
-              >
+              <button onClick={() => setShowLogs(false)} className="btn btn-sm btn-ghost">
                 <ChevronLeftIcon className="w-5 h-5" />
                 Back
               </button>
               <div>
                 <h1 className="text-2xl font-bold text-base-content">Upload Queue Logs</h1>
-                <p className="text-sm text-base-content/70">View upload events and system activity</p>
+                <p className="text-sm text-base-content/70">
+                  View upload events and system activity
+                </p>
               </div>
             </div>
           </div>
@@ -197,15 +192,10 @@ function UploadQueuePage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-base-content">Upload Queue</h1>
-          <p className="text-sm text-base-content/70">
-            Manage pending and failed session uploads
-          </p>
+          <p className="text-sm text-base-content/70">Manage pending and failed session uploads</p>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={() => setShowLogs(true)}
-            className="btn btn-outline btn-sm gap-2"
-          >
+          <button onClick={() => setShowLogs(true)} className="btn btn-outline btn-sm gap-2">
             <DocumentTextIcon className="w-4 h-4" />
             Logs
           </button>
@@ -267,11 +257,11 @@ function UploadQueuePage() {
           ) : (
             <div className="space-y-3">
               {/* Failed items first */}
-              {queueItems.failed.map((item) => (
+              {queueItems.failed.map(item => (
                 <QueueItemCard key={item.id} item={item} isPending={false} />
               ))}
               {/* Then pending items */}
-              {queueItems.pending.map((item) => (
+              {queueItems.pending.map(item => (
                 <QueueItemCard key={item.id} item={item} isPending={true} />
               ))}
             </div>
@@ -279,8 +269,8 @@ function UploadQueuePage() {
 
           {queueItems && (queueItems.pending.length > 0 || queueItems.failed.length > 0) && (
             <div className="text-xs text-base-content/70 mt-4">
-              Showing {queueItems.pending.length + queueItems.failed.length} items
-              ({queueItems.failed.length} failed, {queueItems.pending.length} pending)
+              Showing {queueItems.pending.length + queueItems.failed.length} items (
+              {queueItems.failed.length} failed, {queueItems.pending.length} pending)
             </div>
           )}
         </div>

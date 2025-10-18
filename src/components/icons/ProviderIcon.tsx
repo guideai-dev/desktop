@@ -14,8 +14,8 @@ function ProviderIcon({ providerId, className = '', size = 20 }: ProviderIconPro
   const iconMap: Record<string, string> = {
     'claude-code': claudeCodeSvg,
     'github-copilot': githubCopilotSvg,
-    'opencode': opencodeSvg,
-    'codex': openaiCodexSvg,
+    opencode: opencodeSvg,
+    codex: openaiCodexSvg,
     'gemini-code': geminiCodeSvg,
   }
 
@@ -27,14 +27,19 @@ function ProviderIcon({ providerId, className = '', size = 20 }: ProviderIconPro
 
   // Add light background for OpenAI Codex and GitHub Copilot (dark icons)
   const needsBackground = providerId === 'codex' || providerId === 'github-copilot'
-  const wrapperClassName = needsBackground ? 'inline-flex items-center justify-center bg-white rounded' : ''
+  const wrapperClassName = needsBackground
+    ? 'inline-flex items-center justify-center bg-white rounded'
+    : ''
 
   const icon = (
     <img
       src={iconPath}
       alt={`${providerId} icon`}
       className={needsBackground ? '' : className}
-      style={{ width: needsBackground ? size * 0.7 : size, height: needsBackground ? size * 0.7 : size }}
+      style={{
+        width: needsBackground ? size * 0.7 : size,
+        height: needsBackground ? size * 0.7 : size,
+      }}
     />
   )
 

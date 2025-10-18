@@ -29,7 +29,14 @@ interface SessionWithMetrics extends AgentSession {
   }
 }
 
-export type DateFilterOption = 'all' | 'last24hrs' | 'today' | 'yesterday' | 'this-week' | 'last-week' | 'range'
+export type DateFilterOption =
+  | 'all'
+  | 'last24hrs'
+  | 'today'
+  | 'yesterday'
+  | 'this-week'
+  | 'last-week'
+  | 'range'
 
 export interface DateRange {
   from: string
@@ -58,23 +65,30 @@ function buildDateWhereClause(dateFilter: DateFilterValue): { clause: string; pa
     case 'last24hrs': {
       const twentyFourHoursAgo = now.getTime() - 24 * 60 * 60 * 1000
       return {
-        clause: 'AND (s.session_end_time >= ? OR (s.session_end_time IS NULL AND s.session_start_time >= ?))',
-        params: [twentyFourHoursAgo, twentyFourHoursAgo]
+        clause:
+          'AND (s.session_end_time >= ? OR (s.session_end_time IS NULL AND s.session_start_time >= ?))',
+        params: [twentyFourHoursAgo, twentyFourHoursAgo],
       }
     }
     case 'today': {
       const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
       return {
-        clause: 'AND (s.session_end_time >= ? OR (s.session_end_time IS NULL AND s.session_start_time >= ?))',
-        params: [startOfToday, startOfToday]
+        clause:
+          'AND (s.session_end_time >= ? OR (s.session_end_time IS NULL AND s.session_start_time >= ?))',
+        params: [startOfToday, startOfToday],
       }
     }
     case 'yesterday': {
-      const startOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime()
+      const startOfYesterday = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() - 1
+      ).getTime()
       const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
       return {
-        clause: 'AND ((s.session_end_time >= ? AND s.session_end_time < ?) OR (s.session_end_time IS NULL AND s.session_start_time >= ? AND s.session_start_time < ?))',
-        params: [startOfYesterday, startOfToday, startOfYesterday, startOfToday]
+        clause:
+          'AND ((s.session_end_time >= ? AND s.session_end_time < ?) OR (s.session_end_time IS NULL AND s.session_start_time >= ? AND s.session_start_time < ?))',
+        params: [startOfYesterday, startOfToday, startOfYesterday, startOfToday],
       }
     }
     case 'this-week': {
@@ -83,8 +97,9 @@ function buildDateWhereClause(dateFilter: DateFilterValue): { clause: string; pa
       startOfWeek.setHours(0, 0, 0, 0)
       const startOfWeekMs = startOfWeek.getTime()
       return {
-        clause: 'AND (s.session_end_time >= ? OR (s.session_end_time IS NULL AND s.session_start_time >= ?))',
-        params: [startOfWeekMs, startOfWeekMs]
+        clause:
+          'AND (s.session_end_time >= ? OR (s.session_end_time IS NULL AND s.session_start_time >= ?))',
+        params: [startOfWeekMs, startOfWeekMs],
       }
     }
     case 'last-week': {
@@ -97,8 +112,9 @@ function buildDateWhereClause(dateFilter: DateFilterValue): { clause: string; pa
       const startOfLastWeekMs = startOfLastWeek.getTime()
       const startOfThisWeekMs = startOfThisWeek.getTime()
       return {
-        clause: 'AND ((s.session_end_time >= ? AND s.session_end_time < ?) OR (s.session_end_time IS NULL AND s.session_start_time >= ? AND s.session_start_time < ?))',
-        params: [startOfLastWeekMs, startOfThisWeekMs, startOfLastWeekMs, startOfThisWeekMs]
+        clause:
+          'AND ((s.session_end_time >= ? AND s.session_end_time < ?) OR (s.session_end_time IS NULL AND s.session_start_time >= ? AND s.session_start_time < ?))',
+        params: [startOfLastWeekMs, startOfThisWeekMs, startOfLastWeekMs, startOfThisWeekMs],
       }
     }
     case 'range': {
@@ -112,8 +128,9 @@ function buildDateWhereClause(dateFilter: DateFilterValue): { clause: string; pa
       const fromMs = fromDate.getTime()
       const toMs = toDate.getTime()
       return {
-        clause: 'AND ((s.session_end_time >= ? AND s.session_end_time <= ?) OR (s.session_end_time IS NULL AND s.session_start_time >= ? AND s.session_start_time <= ?))',
-        params: [fromMs, toMs, fromMs, toMs]
+        clause:
+          'AND ((s.session_end_time >= ? AND s.session_end_time <= ?) OR (s.session_end_time IS NULL AND s.session_start_time >= ? AND s.session_start_time <= ?))',
+        params: [fromMs, toMs, fromMs, toMs],
       }
     }
     default:
@@ -123,21 +140,21 @@ function buildDateWhereClause(dateFilter: DateFilterValue): { clause: string; pa
 
 async function fetchSessions(filters: SessionFilters = {}): Promise<SessionWithMetrics[]> {
   const { provider, projectId, dateFilter } = filters
-  
+
   // Build WHERE clause conditions
   const whereConditions: string[] = []
   const params: any[] = []
-  
+
   if (provider) {
     whereConditions.push('s.provider = ?')
     params.push(provider)
   }
-  
+
   if (projectId) {
     whereConditions.push('s.project_id = ?')
     params.push(projectId)
   }
-  
+
   // Add date filter
   if (dateFilter) {
     const dateWhere = buildDateWhereClause(dateFilter)
@@ -146,11 +163,9 @@ async function fetchSessions(filters: SessionFilters = {}): Promise<SessionWithM
       params.push(...dateWhere.params)
     }
   }
-  
-  const whereClause = whereConditions.length > 0 
-    ? `WHERE ${whereConditions.join(' AND ')}`
-    : ''
-  
+
+  const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : ''
+
   // Build query
   const query = `
     SELECT
@@ -187,32 +202,35 @@ async function fetchSessions(filters: SessionFilters = {}): Promise<SessionWithM
   console.log(`[useLocalSessions] Loaded ${result.length} sessions from database`)
 
   // Transform results to include metrics as nested object
-  const sessionsWithMetrics: SessionWithMetrics[] = result.map((row) => {
-    const hasMetrics = row.response_latency_ms !== null ||
+  const sessionsWithMetrics: SessionWithMetrics[] = result.map(row => {
+    const hasMetrics =
+      row.response_latency_ms !== null ||
       row.task_completion_time_ms !== null ||
       row.read_write_ratio !== null
 
     if (!hasMetrics && row.core_metrics_status === 'completed') {
-      console.warn(`[useLocalSessions] ⚠️  Session ${row.session_id} has core_metrics_status='completed' but NO metrics in LEFT JOIN result!`)
+      console.warn(
+        `[useLocalSessions] ⚠️  Session ${row.session_id} has core_metrics_status='completed' but NO metrics in LEFT JOIN result!`
+      )
     }
 
     const metrics = hasMetrics
-        ? {
-            response_latency_ms: row.response_latency_ms,
-            task_completion_time_ms: row.task_completion_time_ms,
-            read_write_ratio: row.read_write_ratio,
-            input_clarity_score: row.input_clarity_score,
-            task_success_rate: row.task_success_rate,
-            iteration_count: row.iteration_count,
-            process_quality_score: row.process_quality_score,
-            used_plan_mode: row.used_plan_mode === 1,
-            used_todo_tracking: row.used_todo_tracking === 1,
-            interruption_rate: row.interruption_rate,
-            session_length_minutes: row.session_length_minutes,
-            error_count: row.error_count,
-            fatal_errors: row.fatal_errors,
-          }
-        : undefined
+      ? {
+          response_latency_ms: row.response_latency_ms,
+          task_completion_time_ms: row.task_completion_time_ms,
+          read_write_ratio: row.read_write_ratio,
+          input_clarity_score: row.input_clarity_score,
+          task_success_rate: row.task_success_rate,
+          iteration_count: row.iteration_count,
+          process_quality_score: row.process_quality_score,
+          used_plan_mode: row.used_plan_mode === 1,
+          used_todo_tracking: row.used_todo_tracking === 1,
+          interruption_rate: row.interruption_rate,
+          session_length_minutes: row.session_length_minutes,
+          error_count: row.error_count,
+          fatal_errors: row.fatal_errors,
+        }
+      : undefined
 
     return {
       id: row.id,
@@ -225,23 +243,33 @@ async function fetchSessions(filters: SessionFilters = {}): Promise<SessionWithM
       projectName: row.project_name || 'Unknown Project',
       projectId: row.project_id || null,
       // Timestamps are stored as milliseconds in SQLite
-      sessionStartTime: row.session_start_time ? new Date(row.session_start_time).toISOString() : null,
+      sessionStartTime: row.session_start_time
+        ? new Date(row.session_start_time).toISOString()
+        : null,
       sessionEndTime: row.session_end_time ? new Date(row.session_end_time).toISOString() : null,
       fileSize: row.file_size || 0,
       durationMs: row.duration_ms || null,
       processingStatus: row.processing_status || 'pending',
       processedAt: row.processed_at ? new Date(row.processed_at).toISOString() : null,
       coreMetricsStatus: row.core_metrics_status || 'pending',
-      coreMetricsProcessedAt: row.core_metrics_processed_at ? new Date(row.core_metrics_processed_at).toISOString() : null,
+      coreMetricsProcessedAt: row.core_metrics_processed_at
+        ? new Date(row.core_metrics_processed_at).toISOString()
+        : null,
       assessmentStatus: row.assessment_status || 'not_started',
-      assessmentCompletedAt: row.assessment_completed_at ? new Date(row.assessment_completed_at).toISOString() : null,
+      assessmentCompletedAt: row.assessment_completed_at
+        ? new Date(row.assessment_completed_at).toISOString()
+        : null,
       assessmentRating: row.assessment_rating || null,
       aiModelSummary: row.ai_model_summary || null,
       aiModelQualityScore: row.ai_model_quality_score || null,
       aiModelMetadata: row.ai_model_metadata ? JSON.parse(row.ai_model_metadata) : null,
-      aiModelPhaseAnalysis: row.ai_model_phase_analysis ? JSON.parse(row.ai_model_phase_analysis) : null,
+      aiModelPhaseAnalysis: row.ai_model_phase_analysis
+        ? JSON.parse(row.ai_model_phase_analysis)
+        : null,
       createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
-      uploadedAt: row.uploaded_at ? new Date(row.uploaded_at).toISOString() : new Date().toISOString(),
+      uploadedAt: row.uploaded_at
+        ? new Date(row.uploaded_at).toISOString()
+        : new Date().toISOString(),
       syncedToServer: row.synced_to_server === 1,
       syncFailedReason: row.sync_failed_reason || null,
       gitBranch: row.git_branch || null,
@@ -255,7 +283,12 @@ async function fetchSessions(filters: SessionFilters = {}): Promise<SessionWithM
 }
 
 export function useLocalSessions(filters?: SessionFilters) {
-  const { data: sessions = [], isLoading: loading, error, refetch } = useQuery({
+  const {
+    data: sessions = [],
+    isLoading: loading,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ['local-sessions', filters?.provider, filters?.projectId, filters?.dateFilter],
     queryFn: () => fetchSessions(filters),
   })
@@ -361,23 +394,35 @@ export function useLocalSession(sessionId: string) {
         projectName: row.project_name || 'Unknown Project',
         projectId: row.project_id || null,
         // Timestamps are stored as milliseconds in SQLite
-        sessionStartTime: row.session_start_time ? new Date(row.session_start_time).toISOString() : null,
+        sessionStartTime: row.session_start_time
+          ? new Date(row.session_start_time).toISOString()
+          : null,
         sessionEndTime: row.session_end_time ? new Date(row.session_end_time).toISOString() : null,
         fileSize: row.file_size || 0,
         durationMs: row.duration_ms || null,
         processingStatus: row.processing_status || 'pending',
         processedAt: row.processed_at ? new Date(row.processed_at).toISOString() : null,
         coreMetricsStatus: row.core_metrics_status || 'pending',
-        coreMetricsProcessedAt: row.core_metrics_processed_at ? new Date(row.core_metrics_processed_at).toISOString() : null,
+        coreMetricsProcessedAt: row.core_metrics_processed_at
+          ? new Date(row.core_metrics_processed_at).toISOString()
+          : null,
         assessmentStatus: row.assessment_status || 'not_started',
-        assessmentCompletedAt: row.assessment_completed_at ? new Date(row.assessment_completed_at).toISOString() : null,
+        assessmentCompletedAt: row.assessment_completed_at
+          ? new Date(row.assessment_completed_at).toISOString()
+          : null,
         assessmentRating: row.assessment_rating || null,
         aiModelSummary: row.ai_model_summary || null,
         aiModelQualityScore: row.ai_model_quality_score || null,
         aiModelMetadata: row.ai_model_metadata ? JSON.parse(row.ai_model_metadata) : null,
-        aiModelPhaseAnalysis: row.ai_model_phase_analysis ? JSON.parse(row.ai_model_phase_analysis) : null,
-        createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
-        uploadedAt: row.uploaded_at ? new Date(row.uploaded_at).toISOString() : new Date().toISOString(),
+        aiModelPhaseAnalysis: row.ai_model_phase_analysis
+          ? JSON.parse(row.ai_model_phase_analysis)
+          : null,
+        createdAt: row.created_at
+          ? new Date(row.created_at).toISOString()
+          : new Date().toISOString(),
+        uploadedAt: row.uploaded_at
+          ? new Date(row.uploaded_at).toISOString()
+          : new Date().toISOString(),
         syncedToServer: row.synced_to_server === 1,
         syncFailedReason: row.sync_failed_reason || null,
         filePath: row.file_path,

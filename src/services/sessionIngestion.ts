@@ -206,10 +206,9 @@ export async function getAllSessions(filters?: {
 export async function getSessionMetrics(sessionId: string): Promise<any> {
   const db = getDatabase()
 
-  const results = await db.select(
-    'SELECT * FROM session_metrics WHERE session_id = ?',
-    [sessionId]
-  ) as any[]
+  const results = (await db.select('SELECT * FROM session_metrics WHERE session_id = ?', [
+    sessionId,
+  ])) as any[]
 
   return results[0] || null
 }

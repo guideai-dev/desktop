@@ -92,15 +92,22 @@ export function useDelayedAiProcessing() {
 
             // Invalidate query cache to show updated AI results immediately
             await queryClient.invalidateQueries({ queryKey: ['local-sessions'] })
-            await queryClient.invalidateQueries({ queryKey: ['session-metrics', session.session_id] })
-            await queryClient.invalidateQueries({ queryKey: ['session-metadata', session.session_id] })
+            await queryClient.invalidateQueries({
+              queryKey: ['session-metrics', session.session_id],
+            })
+            await queryClient.invalidateQueries({
+              queryKey: ['session-metadata', session.session_id],
+            })
           } catch (error) {
             console.error(`Failed to process AI for session ${session.session_id}:`, error)
 
             // Mark as failed if it's an auth error, otherwise leave as pending to retry
             const errorMsg = error instanceof Error ? error.message.toLowerCase() : ''
-            const isAuthError = errorMsg.includes('401') || errorMsg.includes('403') ||
-                               errorMsg.includes('api key') || errorMsg.includes('unauthorized')
+            const isAuthError =
+              errorMsg.includes('401') ||
+              errorMsg.includes('403') ||
+              errorMsg.includes('api key') ||
+              errorMsg.includes('unauthorized')
 
             if (isAuthError) {
               // Mark as failed so we don't keep retrying with bad credentials

@@ -46,7 +46,7 @@ export function useSessionSync(providerId: string) {
       refetchProgress()
       setError(null)
     },
-    onError: (err) => {
+    onError: err => {
       setError(err instanceof Error ? err.message : 'Failed to scan sessions')
     },
   })
@@ -62,7 +62,7 @@ export function useSessionSync(providerId: string) {
       // Also invalidate upload queue status to show new uploads
       queryClient.invalidateQueries({ queryKey: ['upload-queue', 'status'] })
     },
-    onError: (err) => {
+    onError: err => {
       setError(err instanceof Error ? err.message : 'Failed to sync sessions')
     },
   })
@@ -74,7 +74,7 @@ export function useSessionSync(providerId: string) {
       refetchProgress()
       setError(null)
     },
-    onError: (err) => {
+    onError: err => {
       setError(err instanceof Error ? err.message : 'Failed to reset progress')
     },
   })

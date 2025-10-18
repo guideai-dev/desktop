@@ -77,9 +77,7 @@ function DashboardPage() {
     <div className="p-6">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-base-content">Dashboard</h1>
-        <p className="text-sm text-base-content/70 mt-1">
-          Welcome to GuideAI Desktop Manager
-        </p>
+        <p className="text-sm text-base-content/70 mt-1">Welcome to GuideAI Desktop Manager</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -108,7 +106,10 @@ function DashboardPage() {
         </div>
 
         {/* Active Providers Card */}
-        <div className="card bg-base-100 shadow-sm border border-base-300" data-tour="providers-card">
+        <div
+          className="card bg-base-100 shadow-sm border border-base-300"
+          data-tour="providers-card"
+        >
           <div className="card-body">
             <h2 className="card-title text-base">Active Providers</h2>
             <div className="flex flex-col gap-3 mt-2">
@@ -134,7 +135,10 @@ function DashboardPage() {
         </div>
 
         {/* Sync Status Card */}
-        <div className="card bg-base-100 shadow-sm border border-base-300" data-tour="sync-status-card">
+        <div
+          className="card bg-base-100 shadow-sm border border-base-300"
+          data-tour="sync-status-card"
+        >
           <div className="card-body">
             <h2 className="card-title text-base">Sync Status</h2>
             <p className="text-lg font-semibold">
@@ -185,7 +189,7 @@ function DashboardPage() {
           </div>
         ) : (
           <div className="grid gap-4">
-            {latestSessions.map((session) => (
+            {latestSessions.map(session => (
               <SessionCard
                 key={session.sessionId as string}
                 session={{

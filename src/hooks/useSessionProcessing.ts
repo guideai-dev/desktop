@@ -1,9 +1,6 @@
 import { useState, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import type {
-  ProcessorContext,
-  ProcessorResult,
-} from '@guideai-dev/session-processing/processors'
+import type { ProcessorContext, ProcessorResult } from '@guideai-dev/session-processing/processors'
 import type {
   PerformanceMetrics,
   UsageMetrics,
@@ -101,7 +98,7 @@ export function useSessionProcessing() {
           // Get session details from database to get cwd and commit hashes
           const sessionDetails = await invoke<any[]>('execute_sql', {
             sql: 'SELECT cwd, first_commit_hash, latest_commit_hash, session_start_time, session_end_time FROM agent_sessions WHERE session_id = ?',
-            params: [sessionId]
+            params: [sessionId],
           })
 
           if (sessionDetails[0]?.cwd && sessionDetails[0]?.first_commit_hash) {
@@ -117,7 +114,7 @@ export function useSessionProcessing() {
               latestCommitHash: session.latest_commit_hash,
               isActive,
               sessionStartTime: session.session_start_time || null,
-              sessionEndTime: session.session_end_time || null
+              sessionEndTime: session.session_end_time || null,
             })
 
             // Transform to format expected by git diff processor
@@ -125,9 +122,9 @@ export function useSessionProcessing() {
               gitDiffData = {
                 files: fileDiffs.map((f: any) => ({
                   path: f.new_path,
-                  stats: f.stats
+                  stats: f.stats,
                 })),
-                isUnstaged: isActive
+                isUnstaged: isActive,
               }
             }
           }
@@ -244,9 +241,8 @@ function mapResultsToRow(
         row.total_operations = quality.metadata?.total_operations
         row.exit_plan_mode_count = quality.metadata?.exit_plan_mode_count
         row.todo_write_count = quality.metadata?.todo_write_count
-        row.over_top_affirmations_phrases = quality.metadata?.over_top_affirmations_phrases?.join(
-          ','
-        )
+        row.over_top_affirmations_phrases =
+          quality.metadata?.over_top_affirmations_phrases?.join(',')
         row.quality_improvement_tips = quality.metadata?.improvement_tips?.join('\n')
         // Keep backward compatibility
         row.improvement_tips = quality.metadata?.improvement_tips?.join('\n')

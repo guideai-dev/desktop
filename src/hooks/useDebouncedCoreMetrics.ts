@@ -26,7 +26,7 @@ export function useDebouncedCoreMetrics() {
     let unlisten: (() => void) | null = null
 
     const setupListener = async () => {
-      unlisten = await listen<string>('session-updated', async (event) => {
+      unlisten = await listen<string>('session-updated', async event => {
         const sessionId = event.payload
 
         // Get debounce delay from config (default 10 seconds)
@@ -72,12 +72,7 @@ export function useDebouncedCoreMetrics() {
             })
 
             // Process core metrics (will update existing metrics if already processed)
-            await processSession(
-              session.session_id,
-              session.provider,
-              content,
-              'local'
-            )
+            await processSession(session.session_id, session.provider, content, 'local')
 
             // Invalidate query cache to show updated metrics immediately
             await queryClient.invalidateQueries({ queryKey: ['local-sessions'] })
@@ -99,7 +94,7 @@ export function useDebouncedCoreMetrics() {
 
     return () => {
       // Cleanup: clear all timeouts
-      debounceMap.current.forEach((timeout) => clearTimeout(timeout))
+      debounceMap.current.forEach(timeout => clearTimeout(timeout))
       debounceMap.current.clear()
 
       if (unlisten) {

@@ -20,8 +20,7 @@ export function useStartCodexWatcher() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (projects: string[]) =>
-      invoke<void>('start_codex_watcher', { projects }),
+    mutationFn: (projects: string[]) => invoke<void>('start_codex_watcher', { projects }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['codex-watcher-status'] })
     },

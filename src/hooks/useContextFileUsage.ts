@@ -57,7 +57,7 @@ export function useContextFileUsage(
       // Create variations to search for (handle different path separators)
       const pathVariations = [
         relativePath,
-        relativePath.replace(/\\/g, '/'),  // Normalize to forward slashes
+        relativePath.replace(/\\/g, '/'), // Normalize to forward slashes
         relativePath.replace(/\//g, '\\'), // Normalize to backslashes
       ]
 
@@ -75,9 +75,7 @@ export function useContextFileUsage(
 
         // Convert message to string for searching
         const messageStr = JSON.stringify(message).toLowerCase()
-        const found = pathVariations.some(variation =>
-          messageStr.includes(variation.toLowerCase())
-        )
+        const found = pathVariations.some(variation => messageStr.includes(variation.toLowerCase()))
 
         if (found) {
           // Determine if this is a tool call or a regular message
@@ -115,9 +113,7 @@ function isToolCallMessage(message: any): boolean {
   if (message.message?.content) {
     const content = message.message.content
     if (Array.isArray(content)) {
-      return content.some((item: any) =>
-        item.type === 'tool_use' || item.type === 'tool_result'
-      )
+      return content.some((item: any) => item.type === 'tool_use' || item.type === 'tool_result')
     }
   }
 

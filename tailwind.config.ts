@@ -38,7 +38,6 @@ export default defineConfig({
     'tooltip-top',
     'tooltip-bottom',
 
-
     // Purple classes for AI Assistant button
     'text-purple-700',
     'bg-purple-50',

@@ -20,7 +20,7 @@ export const sessionAssessments = sqliteTable(
     completedAt: integer('completed_at', { mode: 'timestamp_ms' }).notNull(),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   },
-  (table) => ({
+  table => ({
     // Indexes for common queries
     sessionIdx: index('session_assessments_session_idx').on(table.sessionId),
     providerIdx: index('session_assessments_provider_idx').on(table.provider),

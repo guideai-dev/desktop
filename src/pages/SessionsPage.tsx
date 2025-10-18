@@ -35,12 +35,19 @@ export default function SessionsPage() {
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([])
   const [bulkProcessing, setBulkProcessing] = useState(false)
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 })
-  const [syncErrorModal, setSyncErrorModal] = useState<{ sessionId: string; error: string } | null>(null)
-  const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; count: number } | null>(null)
+  const [syncErrorModal, setSyncErrorModal] = useState<{ sessionId: string; error: string } | null>(
+    null
+  )
+  const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; count: number } | null>(
+    null
+  )
   const [confirmClearDialog, setConfirmClearDialog] = useState(false)
   const [displayCount, setDisplayCount] = useState(SESSIONS_PER_PAGE)
   const [processingMode, setProcessingMode] = useState<'core' | 'full'>('full')
-  const [modeSelectionDialog, setModeSelectionDialog] = useState<{ isOpen: boolean; count: number } | null>(null)
+  const [modeSelectionDialog, setModeSelectionDialog] = useState<{
+    isOpen: boolean
+    count: number
+  } | null>(null)
   const { processSessionWithAi, hasApiKey } = useAiProcessing()
   const { processSession: processMetrics } = useSessionProcessing()
   const toast = useToast()
@@ -88,7 +95,7 @@ export default function SessionsPage() {
     if (!loadMoreRef.current) return
 
     observerRef.current = new IntersectionObserver(
-      (entries) => {
+      entries => {
         if (entries[0].isIntersecting) {
           loadMore()
         }
@@ -133,7 +140,13 @@ export default function SessionsPage() {
     navigate(`/sessions/${sessionId}`)
   }
 
-  const handleProcessSession = async (sessionId: string, provider: string, filePath: string, silent = false, mode: 'core' | 'full' = 'full') => {
+  const handleProcessSession = async (
+    sessionId: string,
+    provider: string,
+    filePath: string,
+    silent = false,
+    mode: 'core' | 'full' = 'full'
+  ) => {
     setProcessingSessionId(sessionId)
     try {
       // Load session content
@@ -190,9 +203,14 @@ export default function SessionsPage() {
 
     // Use ALL sessions from database, not just visible ones
     // Filter based on processing mode
-    const sessionsToProcess = effectiveMode === 'core'
-      ? sessions.filter((s) => selectedSessionIds.includes(s.sessionId as string))
-      : sessions.filter((s) => selectedSessionIds.includes(s.sessionId as string) && s.assessmentStatus !== 'completed')
+    const sessionsToProcess =
+      effectiveMode === 'core'
+        ? sessions.filter(s => selectedSessionIds.includes(s.sessionId as string))
+        : sessions.filter(
+            s =>
+              selectedSessionIds.includes(s.sessionId as string) &&
+              s.assessmentStatus !== 'completed'
+          )
 
     if (sessionsToProcess.length === 0) {
       if (effectiveMode === 'core') {
@@ -220,9 +238,14 @@ export default function SessionsPage() {
 
     // Use ALL sessions from database, not just visible ones
     // Filter based on processing mode
-    const sessionsToProcess = effectiveMode === 'core'
-      ? sessions.filter((s) => selectedSessionIds.includes(s.sessionId as string))
-      : sessions.filter((s) => selectedSessionIds.includes(s.sessionId as string) && s.assessmentStatus !== 'completed')
+    const sessionsToProcess =
+      effectiveMode === 'core'
+        ? sessions.filter(s => selectedSessionIds.includes(s.sessionId as string))
+        : sessions.filter(
+            s =>
+              selectedSessionIds.includes(s.sessionId as string) &&
+              s.assessmentStatus !== 'completed'
+          )
 
     setBulkProcessing(true)
     setBulkProgress({ current: 0, total: sessionsToProcess.length })
@@ -240,12 +263,18 @@ export default function SessionsPage() {
       setBulkProgress({ current: i + 1, total: sessionsToProcess.length })
 
       try {
-        await handleProcessSession(session.sessionId as string, session.provider, session.filePath as string, true, effectiveMode)
+        await handleProcessSession(
+          session.sessionId as string,
+          session.provider,
+          session.filePath as string,
+          true,
+          effectiveMode
+        )
         successCount++
 
         // Add 2-second delay between requests to avoid rate limiting (only if using AI in full mode)
         if (effectiveMode === 'full' && hasApiKey() && i < sessionsToProcess.length - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 2000))
+          await new Promise(resolve => setTimeout(resolve, 2000))
         }
       } catch (err) {
         console.error(`Failed to process session ${session.sessionId}:`, err)
@@ -260,7 +289,9 @@ export default function SessionsPage() {
 
     const modeLabel = effectiveMode === 'core' ? 'core metrics' : 'full processing'
     if (errorCount > 0) {
-      toast.warning(`Bulk ${modeLabel} complete!\n✓ ${successCount} successful\n✗ ${errorCount} failed`)
+      toast.warning(
+        `Bulk ${modeLabel} complete!\n✓ ${successCount} successful\n✗ ${errorCount} failed`
+      )
     } else {
       toast.success(`Bulk ${modeLabel} complete! ${successCount} sessions processed successfully.`)
     }
@@ -289,16 +320,17 @@ export default function SessionsPage() {
     setModeSelectionDialog(null)
 
     // Filter sessions based on mode
-    const sessionsToProcess = mode === 'core'
-      ? sessions // Process ALL sessions in core mode
-      : sessions.filter((s) => s.assessmentStatus !== 'completed') // Only unprocessed in full mode
+    const sessionsToProcess =
+      mode === 'core'
+        ? sessions // Process ALL sessions in core mode
+        : sessions.filter(s => s.assessmentStatus !== 'completed') // Only unprocessed in full mode
 
     if (sessionsToProcess.length === 0) {
       toast.info('All sessions already processed.')
       return
     }
 
-    const sessionIds = sessionsToProcess.map((s) => s.sessionId as string)
+    const sessionIds = sessionsToProcess.map(s => s.sessionId as string)
 
     // Set mode and selection using flushSync to ensure immediate state updates
     flushSync(() => {
@@ -326,12 +358,18 @@ export default function SessionsPage() {
       setBulkProgress({ current: i + 1, total: sessionsToProcess.length })
 
       try {
-        await handleProcessSession(session.sessionId as string, session.provider, session.filePath as string, true, mode)
+        await handleProcessSession(
+          session.sessionId as string,
+          session.provider,
+          session.filePath as string,
+          true,
+          mode
+        )
         successCount++
 
         // Add 2-second delay between requests to avoid rate limiting (only if using AI in full mode)
         if (mode === 'full' && hasApiKey() && i < sessionsToProcess.length - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 2000))
+          await new Promise(resolve => setTimeout(resolve, 2000))
         }
       } catch (err) {
         console.error(`Failed to process session ${session.sessionId}:`, err)
@@ -346,7 +384,9 @@ export default function SessionsPage() {
 
     const modeLabel = mode === 'core' ? 'core metrics' : 'full processing'
     if (errorCount > 0) {
-      toast.warning(`Bulk ${modeLabel} complete!\n✓ ${successCount} successful\n✗ ${errorCount} failed`)
+      toast.warning(
+        `Bulk ${modeLabel} complete!\n✓ ${successCount} successful\n✗ ${errorCount} failed`
+      )
     } else {
       toast.success(`Bulk ${modeLabel} complete! ${successCount} sessions processed successfully.`)
     }
@@ -354,7 +394,7 @@ export default function SessionsPage() {
 
   const handleToggleSelection = (sessionId: string, checked: boolean) => {
     flushSync(() => {
-      setSelectedSessionIds((prev) => {
+      setSelectedSessionIds(prev => {
         if (checked) {
           // Add if not already present
           if (prev.includes(sessionId)) {
@@ -373,8 +413,8 @@ export default function SessionsPage() {
     if (checked) {
       // Select all visible sessions not yet completed
       const unprocessedSessionIds = visibleSessions
-        .filter((s) => s.assessmentStatus !== 'completed')
-        .map((s) => s.sessionId as string)
+        .filter(s => s.assessmentStatus !== 'completed')
+        .map(s => s.sessionId as string)
       setSelectedSessionIds(unprocessedSessionIds)
     } else {
       setSelectedSessionIds([])
@@ -450,9 +490,10 @@ export default function SessionsPage() {
     setRescanning(true)
     try {
       // Rescan based on provider filter selection
-      const providers = providerFilter === 'all'
-        ? ['claude-code', 'github-copilot', 'opencode', 'codex', 'gemini-code']
-        : [providerFilter]
+      const providers =
+        providerFilter === 'all'
+          ? ['claude-code', 'github-copilot', 'opencode', 'codex', 'gemini-code']
+          : [providerFilter]
       let totalFound = 0
 
       for (const provider of providers) {
@@ -502,9 +543,13 @@ export default function SessionsPage() {
       }, 10000)
 
       if (errorCount > 0) {
-        toast.warning(`Rescan complete!\n✓ ${processedCount} sessions processed\n✗ ${errorCount} errors`)
+        toast.warning(
+          `Rescan complete!\n✓ ${processedCount} sessions processed\n✗ ${errorCount} errors`
+        )
       } else {
-        toast.success(`Rescan complete! Found and processed ${processedCount} sessions with core metrics.`)
+        toast.success(
+          `Rescan complete! Found and processed ${processedCount} sessions with core metrics.`
+        )
       }
     } catch (err) {
       console.error('Error during rescan:', err)
@@ -524,9 +569,10 @@ export default function SessionsPage() {
       const result = await invoke<string>('clear_all_sessions')
 
       // Rescan based on provider filter selection
-      const providers = providerFilter === 'all'
-        ? ['claude-code', 'github-copilot', 'opencode', 'codex', 'gemini-code']
-        : [providerFilter]
+      const providers =
+        providerFilter === 'all'
+          ? ['claude-code', 'github-copilot', 'opencode', 'codex', 'gemini-code']
+          : [providerFilter]
       let totalFound = 0
 
       for (const provider of providers) {
@@ -576,9 +622,15 @@ export default function SessionsPage() {
       }, 10000)
 
       if (errorCount > 0) {
-        toast.warning(`Clear and rescan complete!\n✓ ${processedCount} sessions processed\n✗ ${errorCount} errors`, 8000)
+        toast.warning(
+          `Clear and rescan complete!\n✓ ${processedCount} sessions processed\n✗ ${errorCount} errors`,
+          8000
+        )
       } else {
-        toast.success(`Clear and rescan complete! Found and processed ${processedCount} sessions with core metrics.`, 8000)
+        toast.success(
+          `Clear and rescan complete! Found and processed ${processedCount} sessions with core metrics.`,
+          8000
+        )
       }
     } catch (err) {
       console.error('Error during clear and rescan:', err)
@@ -701,7 +753,7 @@ export default function SessionsPage() {
         <select
           className="select select-bordered select-sm"
           value={providerFilter}
-          onChange={(e) => setProviderFilter(e.target.value)}
+          onChange={e => setProviderFilter(e.target.value)}
         >
           <option value="all">All Providers</option>
           <option value="claude-code">Claude Code</option>
@@ -713,7 +765,7 @@ export default function SessionsPage() {
         <select
           className="select select-bordered select-sm"
           value={projectFilter}
-          onChange={(e) => {
+          onChange={e => {
             const value = e.target.value
             setProjectFilter(value)
             // Update URL parameter
@@ -726,7 +778,7 @@ export default function SessionsPage() {
           }}
         >
           <option value="all">All Projects</option>
-          {projects.map((project) => (
+          {projects.map(project => (
             <option key={project.id} value={project.id}>
               {project.name}
             </option>
@@ -744,30 +796,40 @@ export default function SessionsPage() {
               <input
                 type="checkbox"
                 className="checkbox checkbox-primary"
-                checked={selectedSessionIds.length === visibleSessions.filter((s) => s.assessmentStatus !== 'completed').length && selectedSessionIds.length > 0}
-                onChange={(e) => handleSelectAll(e.target.checked)}
+                checked={
+                  selectedSessionIds.length ===
+                    visibleSessions.filter(s => s.assessmentStatus !== 'completed').length &&
+                  selectedSessionIds.length > 0
+                }
+                onChange={e => handleSelectAll(e.target.checked)}
               />
               <span className="text-sm">
                 {selectedSessionIds.length > 0
                   ? `${selectedSessionIds.length} selected`
-                  : 'Select All Visible'
-                }
+                  : 'Select All Visible'}
               </span>
             </>
           ) : (
             <>
-              <button
-                onClick={() => setSelectionMode(true)}
-                className="btn btn-sm btn-outline"
-              >
+              <button onClick={() => setSelectionMode(true)} className="btn btn-sm btn-outline">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"
+                  />
                 </svg>
                 Select
               </button>
               <button onClick={handleProcessAll} className="btn btn-sm btn-primary">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 10V3L4 14h7v7l9-11h-7z"
+                  />
                 </svg>
                 Process All
               </button>
@@ -836,7 +898,7 @@ export default function SessionsPage() {
       ) : (
         <>
           <div className="grid gap-4">
-            {visibleSessions.map((session) => {
+            {visibleSessions.map(session => {
               const isCompleted = session.assessmentStatus === 'completed'
               const isSelected = selectedSessionIds.includes(session.sessionId as string)
               return (
@@ -848,17 +910,28 @@ export default function SessionsPage() {
                   }}
                   isSelected={isSelected}
                   isActive={isSessionActive(session.sessionId as string, session.sessionEndTime)}
-                  onSelect={selectionMode ? (checked) => handleToggleSelection(session.sessionId as string, checked) : undefined}
+                  onSelect={
+                    selectionMode
+                      ? checked => handleToggleSelection(session.sessionId as string, checked)
+                      : undefined
+                  }
                   onViewSession={() => handleViewSession(session.sessionId as string)}
                   onProcessSession={
                     isCompleted || selectionMode
                       ? undefined
-                      : () => handleProcessSession(session.sessionId as string, session.provider, session.filePath as string)
+                      : () =>
+                          handleProcessSession(
+                            session.sessionId as string,
+                            session.provider,
+                            session.filePath as string
+                          )
                   }
                   onRateSession={handleQuickRate}
                   onSyncSession={handleSyncSession}
                   onShowSyncError={handleShowSyncError}
-                  isProcessing={processingSessionId === session.sessionId || (bulkProcessing && isSelected)}
+                  isProcessing={
+                    processingSessionId === session.sessionId || (bulkProcessing && isSelected)
+                  }
                   ProviderIcon={ProviderIcon}
                 />
               )
@@ -922,7 +995,9 @@ export default function SessionsPage() {
         <div className="modal modal-open">
           <div className="modal-box">
             <h3 className="font-bold text-lg mb-4">Sync Failed</h3>
-            <p className="text-sm text-base-content/70 mb-2">Session ID: {syncErrorModal.sessionId}</p>
+            <p className="text-sm text-base-content/70 mb-2">
+              Session ID: {syncErrorModal.sessionId}
+            </p>
             <div className="bg-error/10 border border-error/20 rounded p-4 mb-4">
               <p className="text-sm font-mono text-error whitespace-pre-wrap break-words">
                 {syncErrorModal.error}
@@ -938,10 +1013,7 @@ export default function SessionsPage() {
               >
                 Retry Upload
               </button>
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => setSyncErrorModal(null)}
-              >
+              <button className="btn btn-ghost btn-sm" onClick={() => setSyncErrorModal(null)}>
                 Close
               </button>
             </div>

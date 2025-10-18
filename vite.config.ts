@@ -1,30 +1,30 @@
-import path from "node:path";
-import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import path from 'node:path'
+import react from '@vitejs/plugin-react'
+import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [react()],
-  root: "src",
+  root: 'src',
   build: {
-    outDir: "../dist",
+    outDir: '../dist',
     emptyOutDir: true,
   },
   server: {
     port: 3002,
     strictPort: true,
     watch: {
-      ignored: ["**/src-tauri/**"],
+      ignored: ['**/src-tauri/**'],
     },
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
-      "@guideai/types": path.resolve(__dirname, "../../packages/types/src"),
+      '@': path.resolve(__dirname, './src'),
+      '@guideai/types': path.resolve(__dirname, '../../packages/types/src'),
     },
   },
   test: {
-    environment: "jsdom",
+    environment: 'jsdom',
   },
   clearScreen: false,
-  envPrefix: ["VITE_", "TAURI_"],
-});
+  envPrefix: ['VITE_', 'TAURI_'],
+})

@@ -52,10 +52,12 @@ export const useConfigStore = create<ConfigState>()(
       loadProviderConfig: async (providerId: string) => {
         try {
           set({ isLoading: true, error: null })
-          const config = await invoke<ProviderConfig>('load_provider_config_command', { providerId })
+          const config = await invoke<ProviderConfig>('load_provider_config_command', {
+            providerId,
+          })
           set(state => ({
             providerConfigs: { ...state.providerConfigs, [providerId]: config },
-            isLoading: false
+            isLoading: false,
           }))
         } catch (error) {
           set({ error: error as string, isLoading: false })
@@ -68,7 +70,7 @@ export const useConfigStore = create<ConfigState>()(
           await invoke('save_provider_config_command', { providerId, config })
           set(state => ({
             providerConfigs: { ...state.providerConfigs, [providerId]: config },
-            isLoading: false
+            isLoading: false,
           }))
         } catch (error) {
           set({ error: error as string, isLoading: false })
@@ -91,7 +93,7 @@ export const useConfigStore = create<ConfigState>()(
 
       setAiApiKey: (provider: 'claude' | 'gemini', apiKey: string) => {
         set(state => ({
-          aiApiKeys: { ...state.aiApiKeys, [provider]: apiKey }
+          aiApiKeys: { ...state.aiApiKeys, [provider]: apiKey },
         }))
       },
 
@@ -109,7 +111,7 @@ export const useConfigStore = create<ConfigState>()(
 
       updateSystemConfig: (config: Partial<SystemConfig>) => {
         set(state => ({
-          systemConfig: { ...state.systemConfig, ...config }
+          systemConfig: { ...state.systemConfig, ...config },
         }))
       },
 
@@ -117,15 +119,15 @@ export const useConfigStore = create<ConfigState>()(
         return get().systemConfig
       },
 
-      clearError: () => set({ error: null })
+      clearError: () => set({ error: null }),
     }),
     {
       name: 'guideai-config-storage',
       // Persist AI API keys and system config, not provider configs (those are in Tauri backend)
-      partialize: (state) => ({
+      partialize: state => ({
         aiApiKeys: state.aiApiKeys,
-        systemConfig: state.systemConfig
-      })
+        systemConfig: state.systemConfig,
+      }),
     }
   )
 )

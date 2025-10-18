@@ -1,5 +1,9 @@
 import { useState } from 'react'
-import { ArrowPathIcon, CloudArrowUpIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
+import {
+  ArrowPathIcon,
+  CloudArrowUpIcon,
+  ExclamationTriangleIcon,
+} from '@heroicons/react/24/outline'
 import { CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/solid'
 import { formatDistanceToNow } from 'date-fns'
 import { useSessionSync } from '../../hooks/useSessionSync'
@@ -15,15 +19,8 @@ function SessionSync({ agent }: SessionSyncProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const { data: config } = useProviderConfig(agent.id)
-  const {
-    scanSessions,
-    syncSessions,
-    resetProgress,
-    progress,
-    isScanning,
-    isSyncing,
-    error
-  } = useSessionSync(agent.id)
+  const { scanSessions, syncSessions, resetProgress, progress, isScanning, isSyncing, error } =
+    useSessionSync(agent.id)
 
   const [showDetails, setShowDetails] = useState(false)
 
@@ -70,14 +67,12 @@ function SessionSync({ agent }: SessionSyncProps) {
             <h4 className="text-base font-semibold">Historical Session Sync</h4>
           </div>
 
-          {isComplete && (
-            <CheckCircleIcon className="w-5 h-5 text-success" />
-          )}
+          {isComplete && <CheckCircleIcon className="w-5 h-5 text-success" />}
         </div>
 
         <p className="text-sm text-base-content/70 mb-4">
-          Upload your historical {agent.name} sessions to GuideAI for analytics and insights.
-          Only sessions from selected projects will be included.
+          Upload your historical {agent.name} sessions to GuideAI for analytics and insights. Only
+          sessions from selected projects will be included.
         </p>
 
         {/* Sync Mode Warning */}
@@ -87,14 +82,11 @@ function SessionSync({ agent }: SessionSyncProps) {
             <div className="flex-1">
               <div className="font-medium">Synchronization Disabled</div>
               <div className="text-sm">
-                Sync mode is currently set to '{config?.syncMode || 'Nothing'}'.
-                Enable 'Transcript and Metrics' to sync sessions.
+                Sync mode is currently set to '{config?.syncMode || 'Nothing'}'. Enable 'Transcript
+                and Metrics' to sync sessions.
               </div>
             </div>
-            <button
-              onClick={handleEnableSync}
-              className="btn btn-sm btn-primary"
-            >
+            <button onClick={handleEnableSync} className="btn btn-sm btn-primary">
               Enable Sync
             </button>
           </div>
@@ -107,15 +99,11 @@ function SessionSync({ agent }: SessionSyncProps) {
             <div className="grid grid-cols-2 gap-4 mb-3">
               <div>
                 <div className="text-sm font-medium">Sessions To Sync</div>
-                <div className="text-lg font-bold text-primary">
-                  {progress.total_sessions}
-                </div>
+                <div className="text-lg font-bold text-primary">{progress.total_sessions}</div>
               </div>
               <div>
                 <div className="text-sm font-medium">Synced</div>
-                <div className="text-lg font-bold text-success">
-                  {progress.synced_sessions}
-                </div>
+                <div className="text-lg font-bold text-success">{progress.synced_sessions}</div>
               </div>
             </div>
 
@@ -124,7 +112,9 @@ function SessionSync({ agent }: SessionSyncProps) {
               <div className="w-full">
                 <div className="flex justify-between text-xs mb-1">
                   <span>Progress</span>
-                  <span>{Math.round((progress.synced_sessions / progress.total_sessions) * 100)}%</span>
+                  <span>
+                    {Math.round((progress.synced_sessions / progress.total_sessions) * 100)}%
+                  </span>
                 </div>
                 <progress
                   className="progress progress-primary w-full"
@@ -140,7 +130,9 @@ function SessionSync({ agent }: SessionSyncProps) {
                 <span className="loading loading-spinner loading-xs"></span>
                 <span className="text-sm">
                   {isScanning && `Scanning ${progress.current_provider}...`}
-                  {isSyncing && progress.current_project && `Queueing ${progress.current_project}...`}
+                  {isSyncing &&
+                    progress.current_project &&
+                    `Queueing ${progress.current_project}...`}
                   {isSyncing && !progress.current_project && 'Queueing sessions...'}
                   {isUploading && 'Uploading sessions...'}
                 </span>
@@ -153,9 +145,7 @@ function SessionSync({ agent }: SessionSyncProps) {
                 <ExclamationTriangleIcon className="w-4 h-4" />
                 <div>
                   <div className="font-bold">Some issues occurred</div>
-                  <div className="text-sm">
-                    {progress.errors.length} error(s) during sync
-                  </div>
+                  <div className="text-sm">{progress.errors.length} error(s) during sync</div>
                 </div>
                 <button
                   className="btn btn-sm btn-ghost"
@@ -189,9 +179,14 @@ function SessionSync({ agent }: SessionSyncProps) {
                 <div className="max-h-40 overflow-y-auto text-xs space-y-1">
                   {progress.sessions_found.map((session, index) => (
                     <div key={index} className="bg-base-300 p-2 rounded flex justify-between">
-                      <span className="truncate flex-1">{session.project_name}/{session.file_name}</span>
+                      <span className="truncate flex-1">
+                        {session.project_name}/{session.file_name}
+                      </span>
                       <span className="text-base-content/60 ml-2">
-                        {session.session_start_time && formatDistanceToNow(new Date(session.session_start_time), { addSuffix: true })}
+                        {session.session_start_time &&
+                          formatDistanceToNow(new Date(session.session_start_time), {
+                            addSuffix: true,
+                          })}
                       </span>
                     </div>
                   ))}
@@ -236,7 +231,7 @@ function SessionSync({ agent }: SessionSyncProps) {
                 onClick={handleSync}
                 disabled={isScanning || isSyncing || isUploading || !isSyncEnabled}
               >
-                {(isSyncing || isUploading) ? (
+                {isSyncing || isUploading ? (
                   <>
                     <span className="loading loading-spinner loading-sm"></span>
                     {isSyncing ? 'Queueing...' : 'Uploading...'}
@@ -264,20 +259,14 @@ function SessionSync({ agent }: SessionSyncProps) {
                   Successfully synced {progress.synced_sessions} sessions!
                 </span>
               </div>
-              <button
-                className="btn btn-sm btn-ghost"
-                onClick={handleReset}
-              >
+              <button className="btn btn-sm btn-ghost" onClick={handleReset}>
                 Reset
               </button>
             </div>
           )}
 
           {hasScannedSessions && !isComplete && (
-            <button
-              className="btn btn-sm btn-ghost"
-              onClick={() => setShowDetails(!showDetails)}
-            >
+            <button className="btn btn-sm btn-ghost" onClick={() => setShowDetails(!showDetails)}>
               {showDetails ? 'Hide' : 'Show'} Details
             </button>
           )}
@@ -285,8 +274,8 @@ function SessionSync({ agent }: SessionSyncProps) {
 
         {/* Help Text */}
         <div className="text-xs text-base-content/60 mt-3">
-          This will scan your local {agent.name} directories for session files and upload them to GuideAI.
-          Duplicate sessions will be automatically detected and skipped.
+          This will scan your local {agent.name} directories for session files and upload them to
+          GuideAI. Duplicate sessions will be automatically detected and skipped.
         </div>
       </div>
     </div>

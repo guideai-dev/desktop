@@ -55,10 +55,7 @@ export default function ProjectsPage() {
             {projects.length} {projects.length === 1 ? 'project' : 'projects'} found
           </p>
         </div>
-        <button
-          onClick={refresh}
-          className="btn btn-sm btn-ghost"
-        >
+        <button onClick={refresh} className="btn btn-sm btn-ghost">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
               strokeLinecap="round"
@@ -88,13 +85,11 @@ export default function ProjectsPage() {
             />
           </svg>
           <h3 className="text-lg font-semibold mb-2">No projects found</h3>
-          <p className="text-base-content/70">
-            Projects will appear here as sessions are detected
-          </p>
+          <p className="text-base-content/70">Projects will appear here as sessions are detected</p>
         </div>
       ) : (
         <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-          {projects.map((project) => (
+          {projects.map(project => (
             <Link
               key={project.id}
               to={`/sessions?project=${encodeURIComponent(project.id)}`}
@@ -103,10 +98,10 @@ export default function ProjectsPage() {
               <div className="card-body">
                 {/* Project Header */}
                 <div className="flex items-start justify-between gap-2 mb-2">
-                  <h3 className="card-title text-lg truncate flex-1">
-                    {project.name}
-                  </h3>
-                  <span className={`badge badge-sm ${PROJECT_TYPE_COLORS[project.type] || 'badge-neutral'}`}>
+                  <h3 className="card-title text-lg truncate flex-1">{project.name}</h3>
+                  <span
+                    className={`badge badge-sm ${PROJECT_TYPE_COLORS[project.type] || 'badge-neutral'}`}
+                  >
                     {PROJECT_TYPE_LABELS[project.type] || project.type}
                   </span>
                 </div>
@@ -115,7 +110,7 @@ export default function ProjectsPage() {
                 {project.githubRepo && (
                   <button
                     type="button"
-                    onClick={(e) => {
+                    onClick={e => {
                       e.preventDefault()
                       e.stopPropagation()
                       if (project.githubRepo) {
@@ -132,7 +127,9 @@ export default function ProjectsPage() {
                       />
                     </svg>
                     <span className="truncate">
-                      {project.githubRepo.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '')}
+                      {project.githubRepo
+                        .replace(/^https?:\/\/github\.com\//, '')
+                        .replace(/\.git$/, '')}
                     </span>
                   </button>
                 )}
@@ -147,10 +144,11 @@ export default function ProjectsPage() {
 
                 {/* Last Updated */}
                 <div className="text-xs text-base-content/60">
-                  Last activity: {new Date(project.updatedAt).toLocaleDateString('en-US', {
+                  Last activity:{' '}
+                  {new Date(project.updatedAt).toLocaleDateString('en-US', {
                     month: 'short',
                     day: 'numeric',
-                    year: 'numeric'
+                    year: 'numeric',
                   })}
                 </div>
               </div>

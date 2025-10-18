@@ -16,7 +16,7 @@ export function useAutoSessionProcessing() {
     let processingQueue = new Set<string>() // Track sessions currently being processed
 
     const setupListener = async () => {
-      unlisten = await listen<string>('session-completed', async (event) => {
+      unlisten = await listen<string>('session-completed', async event => {
         const sessionId = event.payload
 
         // Skip if already processing this session
@@ -51,12 +51,7 @@ export function useAutoSessionProcessing() {
           })
 
           // Process metrics
-          await processSession(
-            session.session_id,
-            session.provider,
-            content,
-            'local'
-          )
+          await processSession(session.session_id, session.provider, content, 'local')
         } catch (error) {
           console.error(`Failed to auto-process session ${sessionId}:`, error)
         } finally {

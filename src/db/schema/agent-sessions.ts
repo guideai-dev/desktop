@@ -1,7 +1,12 @@
 import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 export const processingStatusEnum = ['pending', 'processing', 'completed', 'failed'] as const
-export const assessmentStatusEnum = ['not_started', 'rating_only', 'in_progress', 'completed'] as const
+export const assessmentStatusEnum = [
+  'not_started',
+  'rating_only',
+  'in_progress',
+  'completed',
+] as const
 
 export const agentSessions = sqliteTable(
   'agent_sessions',
@@ -19,7 +24,9 @@ export const agentSessions = sqliteTable(
     processingStatus: text('processing_status', { enum: processingStatusEnum }).default('pending'),
     queuedAt: integer('queued_at', { mode: 'timestamp_ms' }), // When queued for processing
     processedAt: integer('processed_at', { mode: 'timestamp_ms' }),
-    assessmentStatus: text('assessment_status', { enum: assessmentStatusEnum }).default('not_started'),
+    assessmentStatus: text('assessment_status', { enum: assessmentStatusEnum }).default(
+      'not_started'
+    ),
     assessmentCompletedAt: integer('assessment_completed_at', { mode: 'timestamp_ms' }),
     projectId: text('project_id'), // Optional reference to projects
     // AI Model fields

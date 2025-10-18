@@ -126,10 +126,16 @@ export default function SessionDetailPage() {
   const isSessionActive = useSessionActivityStore(state => state.isSessionActive)
 
   // Tab state - default to transcript
-  const [activeTab, setActiveTab] = useState<'phase-timeline' | 'transcript' | 'metrics' | 'changes' | 'context'>('transcript')
+  const [activeTab, setActiveTab] = useState<
+    'phase-timeline' | 'transcript' | 'metrics' | 'changes' | 'context'
+  >('transcript')
 
   // Fetch session metadata with TanStack Query
-  const { data: session, isLoading: loading, error } = useQuery({
+  const {
+    data: session,
+    isLoading: loading,
+    error,
+  } = useQuery({
     queryKey: ['session-metadata', sessionId],
     queryFn: () => fetchSessionMetadata(sessionId!),
     enabled: !!sessionId,
@@ -261,19 +267,19 @@ export default function SessionDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['session-git-diff-stats', sessionId] })
     }
 
-    const unlistenSynced = listen('session-synced', (event) => {
+    const unlistenSynced = listen('session-synced', event => {
       if (event.payload === sessionId) {
         invalidateSessionData()
       }
     })
 
-    const unlistenFailed = listen('session-sync-failed', (event) => {
+    const unlistenFailed = listen('session-sync-failed', event => {
       if (event.payload === sessionId) {
         invalidateSessionData()
       }
     })
 
-    const unlistenUpdated = listen('session-updated', (event) => {
+    const unlistenUpdated = listen('session-updated', event => {
       if (event.payload === sessionId) {
         invalidateSessionData()
       }
@@ -292,17 +298,10 @@ export default function SessionDetailPage() {
     fileContent,
     loading: contentLoading,
     error: contentError,
-  } = useLocalSessionContent(
-    session?.session_id,
-    session?.provider,
-    session?.file_path
-  )
+  } = useLocalSessionContent(session?.session_id, session?.provider, session?.file_path)
 
   // Load local metrics if available
-  const {
-    metrics,
-    loading: metricsLoading,
-  } = useLocalSessionMetrics(session?.session_id)
+  const { metrics, loading: metricsLoading } = useLocalSessionMetrics(session?.session_id)
 
   // Handle AI processing
   const handleProcessWithAi = async () => {
@@ -394,7 +393,7 @@ export default function SessionDetailPage() {
     // Filter out meta messages if setting is disabled
     let filteredItems = timeline.items
     if (!showMetaMessages) {
-      filteredItems = filteredItems.filter((item) => {
+      filteredItems = filteredItems.filter(item => {
         if (isTimelineGroup(item)) {
           // Keep group if neither message is meta
           return item.messages.every(msg => msg.originalMessage.type !== 'meta')
@@ -406,13 +405,11 @@ export default function SessionDetailPage() {
     }
 
     // Apply reverse order if requested
-    const orderedItems = reverseOrder
-      ? [...filteredItems].reverse()
-      : filteredItems
+    const orderedItems = reverseOrder ? [...filteredItems].reverse() : filteredItems
 
     return (
       <div>
-        {orderedItems.map((item) => {
+        {orderedItems.map(item => {
           if (isTimelineGroup(item)) {
             return <TimelineGroup key={item.id} group={item} />
           } else {
@@ -461,22 +458,26 @@ export default function SessionDetailPage() {
       <div>
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold">Session Detail</h1>
-          {sessionId && session?.session_end_time && isSessionActive(sessionId, new Date(session.session_end_time).toISOString()) && (
-            <span className="badge badge-success gap-1.5 animate-pulse">
-              <span className="relative flex h-2 w-2 items-center justify-center">
-                <span className="animate-ping absolute h-full w-full rounded-full bg-white opacity-75"></span>
-                <span className="relative rounded-full h-2 w-2 bg-white"></span>
+          {sessionId &&
+            session?.session_end_time &&
+            isSessionActive(sessionId, new Date(session.session_end_time).toISOString()) && (
+              <span className="badge badge-success gap-1.5 animate-pulse">
+                <span className="relative flex h-2 w-2 items-center justify-center">
+                  <span className="animate-ping absolute h-full w-full rounded-full bg-white opacity-75"></span>
+                  <span className="relative rounded-full h-2 w-2 bg-white"></span>
+                </span>
+                <span>LIVE</span>
               </span>
-              <span>LIVE</span>
-            </span>
-          )}
+            )}
         </div>
-        <button
-          onClick={() => navigate('/sessions')}
-          className="btn btn-sm btn-ghost mt-3 pl-0"
-        >
+        <button onClick={() => navigate('/sessions')} className="btn btn-sm btn-ghost mt-3 pl-0">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M15 19l-7-7 7-7"
+            />
           </svg>
           Back to Sessions
         </button>
@@ -489,15 +490,19 @@ export default function SessionDetailPage() {
             session={{
               provider: session.provider,
               projectName: session.project_name,
-              sessionStartTime: session.session_start_time ? new Date(session.session_start_time).toISOString() : null,
+              sessionStartTime: session.session_start_time
+                ? new Date(session.session_start_time).toISOString()
+                : null,
               durationMs: session.duration_ms,
               fileSize: session.file_size,
               cwd: session.cwd || undefined,
-              project: project ? {
-                name: project.name,
-                gitRemoteUrl: project.github_repo || undefined,
-                cwd: undefined,
-              } : undefined,
+              project: project
+                ? {
+                    name: project.name,
+                    gitRemoteUrl: project.github_repo || undefined,
+                    cwd: undefined,
+                  }
+                : undefined,
               gitBranch: session.git_branch || undefined,
               firstCommitHash: session.first_commit_hash || undefined,
               latestCommitHash: session.latest_commit_hash || undefined,
@@ -508,10 +513,14 @@ export default function SessionDetailPage() {
             onProcessSession={handleProcessWithAi}
             processingStatus={(session as any).ai_model_summary ? 'completed' : 'pending'}
             isProcessing={processingAi}
-            processingProgress={progress.currentStep ? {
-              stepName: progress.currentStep.name,
-              percentage: progress.currentStep.percentage,
-            } : null}
+            processingProgress={
+              progress.currentStep
+                ? {
+                    stepName: progress.currentStep.name,
+                    percentage: progress.currentStep.percentage,
+                  }
+                : null
+            }
             onCwdClick={session.cwd ? handleCwdClick : undefined}
             onViewDiff={session.first_commit_hash ? handleViewDiff : undefined}
             syncStatus={{
@@ -519,7 +528,7 @@ export default function SessionDetailPage() {
               failed: !!session.sync_failed_reason,
               reason: session.sync_failed_reason || undefined,
               onSync: handleSyncSession,
-              onShowError: (error) => toast.error(error, 10000),
+              onShowError: error => toast.error(error, 10000),
             }}
             ProviderIcon={ProviderIcon}
           />
@@ -608,23 +617,28 @@ export default function SessionDetailPage() {
                 title="Changes"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+                  />
                 </svg>
                 <span className="hidden md:inline">Changes</span>
-                {activeTab !== 'changes' && gitDiffStats && (gitDiffStats.additions > 0 || gitDiffStats.deletions > 0) && (
-                  <span className="flex items-center gap-1">
-                    {gitDiffStats.additions > 0 && (
-                      <span className="badge badge-success badge-sm">
-                        {gitDiffStats.additions}
-                      </span>
-                    )}
-                    {gitDiffStats.deletions > 0 && (
-                      <span className="badge badge-error badge-sm">
-                        {gitDiffStats.deletions}
-                      </span>
-                    )}
-                  </span>
-                )}
+                {activeTab !== 'changes' &&
+                  gitDiffStats &&
+                  (gitDiffStats.additions > 0 || gitDiffStats.deletions > 0) && (
+                    <span className="flex items-center gap-1">
+                      {gitDiffStats.additions > 0 && (
+                        <span className="badge badge-success badge-sm">
+                          {gitDiffStats.additions}
+                        </span>
+                      )}
+                      {gitDiffStats.deletions > 0 && (
+                        <span className="badge badge-error badge-sm">{gitDiffStats.deletions}</span>
+                      )}
+                    </span>
+                  )}
               </button>
             )}
           </div>
@@ -636,8 +650,14 @@ export default function SessionDetailPage() {
                 onClick={() => setReverseOrder(!reverseOrder)}
                 className={`btn btn-xs gap-1.5 ${reverseOrder ? 'btn-primary' : 'btn-ghost'}`}
               >
-                {reverseOrder ? <ArrowUpIcon className="w-3.5 h-3.5" /> : <ArrowDownIcon className="w-3.5 h-3.5" />}
-                <span className="text-xs hidden lg:inline">{reverseOrder ? 'Newest First' : 'Oldest First'}</span>
+                {reverseOrder ? (
+                  <ArrowUpIcon className="w-3.5 h-3.5" />
+                ) : (
+                  <ArrowDownIcon className="w-3.5 h-3.5" />
+                )}
+                <span className="text-xs hidden lg:inline">
+                  {reverseOrder ? 'Newest First' : 'Oldest First'}
+                </span>
               </button>
               <div className="relative">
                 <button
@@ -658,13 +678,14 @@ export default function SessionDetailPage() {
                         <input
                           type="checkbox"
                           checked={showMetaMessages}
-                          onChange={(e) => setShowMetaMessages(e.target.checked)}
+                          onChange={e => setShowMetaMessages(e.target.checked)}
                           className="checkbox checkbox-sm checkbox-primary"
                         />
                         <span className="text-sm">Show meta messages</span>
                       </label>
                       <p className="text-xs text-base-content/60 mt-2">
-                        Meta messages are internal system messages that provide context but are not part of the main conversation.
+                        Meta messages are internal system messages that provide context but are not
+                        part of the main conversation.
                       </p>
                     </div>
                   </>
@@ -687,14 +708,17 @@ export default function SessionDetailPage() {
             ) : contentError ? (
               <div className="alert alert-error">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
                 </svg>
                 <span>Failed to load session content: {contentError}</span>
               </div>
             ) : (
-              <div className="overflow-auto">
-                {renderTimeline()}
-              </div>
+              <div className="overflow-auto">{renderTimeline()}</div>
             )}
           </>
         )}

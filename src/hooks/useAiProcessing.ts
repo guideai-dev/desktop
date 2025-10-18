@@ -1,7 +1,12 @@
 import { useState, useCallback } from 'react'
 import { useConfigStore } from '../stores/configStore'
 import { ClaudeModelAdapter, GeminiModelAdapter } from '@guideai-dev/session-processing/ai-models'
-import { SessionSummaryTask, QualityAssessmentTask, IntentExtractionTask, SessionPhaseAnalysisTask } from '@guideai-dev/session-processing/ai-models'
+import {
+  SessionSummaryTask,
+  QualityAssessmentTask,
+  IntentExtractionTask,
+  SessionPhaseAnalysisTask,
+} from '@guideai-dev/session-processing/ai-models'
 import type { ParsedSession } from '@guideai-dev/session-processing/processors'
 import { invoke } from '@tauri-apps/api/core'
 import type { AiProcessingStep } from './useAiProcessingProgress'
@@ -62,7 +67,7 @@ export function useAiProcessing() {
           : new GeminiModelAdapter({ apiKey: geminiKey! })
 
         const result: AiProcessingResult = {
-          metadata: {}
+          metadata: {},
         }
 
         // Notify progress: Starting summary generation
@@ -89,11 +94,20 @@ export function useAiProcessing() {
             // Check if it's an authentication/API error (4xx client errors)
             const errorMsg = summaryResult.metadata.error.toLowerCase()
             // Check for HTTP 4xx errors or auth-related keywords
-            if (errorMsg.includes('400') || errorMsg.includes('401') || errorMsg.includes('403') ||
-                errorMsg.includes('invalid') || errorMsg.includes('api key') || errorMsg.includes('api_key') ||
-                errorMsg.includes('unauthorized') || errorMsg.includes('authentication') ||
-                errorMsg.includes('credentials') || errorMsg.includes('permission') ||
-                errorMsg.match(/\b4\d{2}\b/)) { // Match any 4xx HTTP status code
+            if (
+              errorMsg.includes('400') ||
+              errorMsg.includes('401') ||
+              errorMsg.includes('403') ||
+              errorMsg.includes('invalid') ||
+              errorMsg.includes('api key') ||
+              errorMsg.includes('api_key') ||
+              errorMsg.includes('unauthorized') ||
+              errorMsg.includes('authentication') ||
+              errorMsg.includes('credentials') ||
+              errorMsg.includes('permission') ||
+              errorMsg.match(/\b4\d{2}\b/)
+            ) {
+              // Match any 4xx HTTP status code
               throw new Error(summaryResult.metadata.error)
             }
             console.error('Summary task failed:', summaryResult.metadata.error)
@@ -101,11 +115,20 @@ export function useAiProcessing() {
         } catch (err) {
           // Re-throw auth/API errors to surface them to the UI
           const errorMsg = err instanceof Error ? err.message.toLowerCase() : ''
-          if (errorMsg.includes('400') || errorMsg.includes('401') || errorMsg.includes('403') ||
-              errorMsg.includes('invalid') || errorMsg.includes('api key') || errorMsg.includes('api_key') ||
-              errorMsg.includes('unauthorized') || errorMsg.includes('authentication') ||
-              errorMsg.includes('credentials') || errorMsg.includes('permission') ||
-              errorMsg.match(/\b4\d{2}\b/)) { // Match any 4xx HTTP status code
+          if (
+            errorMsg.includes('400') ||
+            errorMsg.includes('401') ||
+            errorMsg.includes('403') ||
+            errorMsg.includes('invalid') ||
+            errorMsg.includes('api key') ||
+            errorMsg.includes('api_key') ||
+            errorMsg.includes('unauthorized') ||
+            errorMsg.includes('authentication') ||
+            errorMsg.includes('credentials') ||
+            errorMsg.includes('permission') ||
+            errorMsg.match(/\b4\d{2}\b/)
+          ) {
+            // Match any 4xx HTTP status code
             throw err
           }
           console.error('Summary task failed:', err)
@@ -134,22 +157,38 @@ export function useAiProcessing() {
             result.metadata!['intent-extraction'] = intentResult.output as any
           } else if (intentResult.metadata?.error) {
             const errorMsg = intentResult.metadata.error.toLowerCase()
-            if (errorMsg.includes('400') || errorMsg.includes('401') || errorMsg.includes('403') ||
-                errorMsg.includes('invalid') || errorMsg.includes('api key') || errorMsg.includes('api_key') ||
-                errorMsg.includes('unauthorized') || errorMsg.includes('authentication') ||
-                errorMsg.includes('credentials') || errorMsg.includes('permission') ||
-                errorMsg.match(/\b4\d{2}\b/)) {
+            if (
+              errorMsg.includes('400') ||
+              errorMsg.includes('401') ||
+              errorMsg.includes('403') ||
+              errorMsg.includes('invalid') ||
+              errorMsg.includes('api key') ||
+              errorMsg.includes('api_key') ||
+              errorMsg.includes('unauthorized') ||
+              errorMsg.includes('authentication') ||
+              errorMsg.includes('credentials') ||
+              errorMsg.includes('permission') ||
+              errorMsg.match(/\b4\d{2}\b/)
+            ) {
               throw new Error(intentResult.metadata.error)
             }
             console.error('Intent extraction failed:', intentResult.metadata.error)
           }
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message.toLowerCase() : ''
-          if (errorMsg.includes('400') || errorMsg.includes('401') || errorMsg.includes('403') ||
-              errorMsg.includes('invalid') || errorMsg.includes('api key') || errorMsg.includes('api_key') ||
-              errorMsg.includes('unauthorized') || errorMsg.includes('authentication') ||
-              errorMsg.includes('credentials') || errorMsg.includes('permission') ||
-              errorMsg.match(/\b4\d{2}\b/)) {
+          if (
+            errorMsg.includes('400') ||
+            errorMsg.includes('401') ||
+            errorMsg.includes('403') ||
+            errorMsg.includes('invalid') ||
+            errorMsg.includes('api key') ||
+            errorMsg.includes('api_key') ||
+            errorMsg.includes('unauthorized') ||
+            errorMsg.includes('authentication') ||
+            errorMsg.includes('credentials') ||
+            errorMsg.includes('permission') ||
+            errorMsg.match(/\b4\d{2}\b/)
+          ) {
             throw err
           }
           console.error('Intent extraction task failed:', err)
@@ -181,11 +220,20 @@ export function useAiProcessing() {
             // Check if it's an authentication/API error (4xx client errors)
             const errorMsg = qualityResult.metadata.error.toLowerCase()
             // Check for HTTP 4xx errors or auth-related keywords
-            if (errorMsg.includes('400') || errorMsg.includes('401') || errorMsg.includes('403') ||
-                errorMsg.includes('invalid') || errorMsg.includes('api key') || errorMsg.includes('api_key') ||
-                errorMsg.includes('unauthorized') || errorMsg.includes('authentication') ||
-                errorMsg.includes('credentials') || errorMsg.includes('permission') ||
-                errorMsg.match(/\b4\d{2}\b/)) { // Match any 4xx HTTP status code
+            if (
+              errorMsg.includes('400') ||
+              errorMsg.includes('401') ||
+              errorMsg.includes('403') ||
+              errorMsg.includes('invalid') ||
+              errorMsg.includes('api key') ||
+              errorMsg.includes('api_key') ||
+              errorMsg.includes('unauthorized') ||
+              errorMsg.includes('authentication') ||
+              errorMsg.includes('credentials') ||
+              errorMsg.includes('permission') ||
+              errorMsg.match(/\b4\d{2}\b/)
+            ) {
+              // Match any 4xx HTTP status code
               throw new Error(qualityResult.metadata.error)
             }
             console.error('Quality assessment failed:', qualityResult.metadata.error)
@@ -193,11 +241,20 @@ export function useAiProcessing() {
         } catch (err) {
           // Re-throw auth/API errors to surface them to the UI
           const errorMsg = err instanceof Error ? err.message.toLowerCase() : ''
-          if (errorMsg.includes('400') || errorMsg.includes('401') || errorMsg.includes('403') ||
-              errorMsg.includes('invalid') || errorMsg.includes('api key') || errorMsg.includes('api_key') ||
-              errorMsg.includes('unauthorized') || errorMsg.includes('authentication') ||
-              errorMsg.includes('credentials') || errorMsg.includes('permission') ||
-              errorMsg.match(/\b4\d{2}\b/)) { // Match any 4xx HTTP status code
+          if (
+            errorMsg.includes('400') ||
+            errorMsg.includes('401') ||
+            errorMsg.includes('403') ||
+            errorMsg.includes('invalid') ||
+            errorMsg.includes('api key') ||
+            errorMsg.includes('api_key') ||
+            errorMsg.includes('unauthorized') ||
+            errorMsg.includes('authentication') ||
+            errorMsg.includes('credentials') ||
+            errorMsg.includes('permission') ||
+            errorMsg.match(/\b4\d{2}\b/)
+          ) {
+            // Match any 4xx HTTP status code
             throw err
           }
           console.error('Quality assessment task failed:', err)
@@ -228,11 +285,20 @@ export function useAiProcessing() {
             // Check if it's an authentication/API error (4xx client errors)
             const errorMsg = phaseAnalysisResult.metadata.error.toLowerCase()
             // Check for HTTP 4xx errors or auth-related keywords
-            if (errorMsg.includes('400') || errorMsg.includes('401') || errorMsg.includes('403') ||
-                errorMsg.includes('invalid') || errorMsg.includes('api key') || errorMsg.includes('api_key') ||
-                errorMsg.includes('unauthorized') || errorMsg.includes('authentication') ||
-                errorMsg.includes('credentials') || errorMsg.includes('permission') ||
-                errorMsg.match(/\b4\d{2}\b/)) { // Match any 4xx HTTP status code
+            if (
+              errorMsg.includes('400') ||
+              errorMsg.includes('401') ||
+              errorMsg.includes('403') ||
+              errorMsg.includes('invalid') ||
+              errorMsg.includes('api key') ||
+              errorMsg.includes('api_key') ||
+              errorMsg.includes('unauthorized') ||
+              errorMsg.includes('authentication') ||
+              errorMsg.includes('credentials') ||
+              errorMsg.includes('permission') ||
+              errorMsg.match(/\b4\d{2}\b/)
+            ) {
+              // Match any 4xx HTTP status code
               throw new Error(phaseAnalysisResult.metadata.error)
             }
             console.error('Phase analysis failed:', phaseAnalysisResult.metadata.error)
@@ -240,11 +306,20 @@ export function useAiProcessing() {
         } catch (err) {
           // Re-throw auth/API errors to surface them to the UI
           const errorMsg = err instanceof Error ? err.message.toLowerCase() : ''
-          if (errorMsg.includes('400') || errorMsg.includes('401') || errorMsg.includes('403') ||
-              errorMsg.includes('invalid') || errorMsg.includes('api key') || errorMsg.includes('api_key') ||
-              errorMsg.includes('unauthorized') || errorMsg.includes('authentication') ||
-              errorMsg.includes('credentials') || errorMsg.includes('permission') ||
-              errorMsg.match(/\b4\d{2}\b/)) { // Match any 4xx HTTP status code
+          if (
+            errorMsg.includes('400') ||
+            errorMsg.includes('401') ||
+            errorMsg.includes('403') ||
+            errorMsg.includes('invalid') ||
+            errorMsg.includes('api key') ||
+            errorMsg.includes('api_key') ||
+            errorMsg.includes('unauthorized') ||
+            errorMsg.includes('authentication') ||
+            errorMsg.includes('credentials') ||
+            errorMsg.includes('permission') ||
+            errorMsg.match(/\b4\d{2}\b/)
+          ) {
+            // Match any 4xx HTTP status code
             throw err
           }
           console.error('Phase analysis task failed:', err)
@@ -271,11 +346,20 @@ export function useAiProcessing() {
 
         // Re-throw auth/API errors so they show in the UI
         const errorMsg = errorMessage.toLowerCase()
-        if (errorMsg.includes('400') || errorMsg.includes('401') || errorMsg.includes('403') ||
-            errorMsg.includes('invalid') || errorMsg.includes('api key') || errorMsg.includes('api_key') ||
-            errorMsg.includes('unauthorized') || errorMsg.includes('authentication') ||
-            errorMsg.includes('credentials') || errorMsg.includes('permission') ||
-            errorMsg.match(/\b4\d{2}\b/)) { // Match any 4xx HTTP status code
+        if (
+          errorMsg.includes('400') ||
+          errorMsg.includes('401') ||
+          errorMsg.includes('403') ||
+          errorMsg.includes('invalid') ||
+          errorMsg.includes('api key') ||
+          errorMsg.includes('api_key') ||
+          errorMsg.includes('unauthorized') ||
+          errorMsg.includes('authentication') ||
+          errorMsg.includes('credentials') ||
+          errorMsg.includes('permission') ||
+          errorMsg.match(/\b4\d{2}\b/)
+        ) {
+          // Match any 4xx HTTP status code
           throw err
         }
 
@@ -322,7 +406,9 @@ async function storeAiResults(sessionId: string, results: AiProcessingResult): P
       params: [
         results.summary || null,
         results.qualityScore ?? null,
-        results.metadata && Object.keys(results.metadata).length > 0 ? JSON.stringify(results.metadata) : null,
+        results.metadata && Object.keys(results.metadata).length > 0
+          ? JSON.stringify(results.metadata)
+          : null,
         results.phaseAnalysis ? JSON.stringify(results.phaseAnalysis) : null,
         Date.now(),
         sessionId,

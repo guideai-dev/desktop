@@ -29,8 +29,7 @@ export function useDeleteProviderConfig() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (providerId: string) =>
-      invoke('delete_provider_config_command', { providerId }),
+    mutationFn: (providerId: string) => invoke('delete_provider_config_command', { providerId }),
     onSuccess: (_, providerId) => {
       queryClient.invalidateQueries({ queryKey: ['providerConfig', providerId] })
     },

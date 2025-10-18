@@ -10,7 +10,7 @@ async function logUpdaterEvent(level: string, message: string, details?: Record<
     await invoke('log_updater_event_command', {
       level,
       message,
-      details: details ? details : null
+      details: details ? details : null,
     })
   } catch (error) {
     console.error('Failed to log updater event:', error)
@@ -54,13 +54,15 @@ export function useUpdater(): UseUpdaterReturn {
 
   // Load current app version on mount
   useEffect(() => {
-    getVersion().then(version => {
-      setState(prev => ({ ...prev, currentVersion: version }))
-      logUpdaterEvent('INFO', `App version loaded: ${version}`)
-    }).catch(err => {
-      const errorMsg = err instanceof Error ? err.message : String(err)
-      logUpdaterEvent('ERROR', 'Failed to get app version', { error: errorMsg })
-    })
+    getVersion()
+      .then(version => {
+        setState(prev => ({ ...prev, currentVersion: version }))
+        logUpdaterEvent('INFO', `App version loaded: ${version}`)
+      })
+      .catch(err => {
+        const errorMsg = err instanceof Error ? err.message : String(err)
+        logUpdaterEvent('ERROR', 'Failed to get app version', { error: errorMsg })
+      })
   }, [])
 
   const checkForUpdates = useCallback(async () => {
@@ -69,11 +71,12 @@ export function useUpdater(): UseUpdaterReturn {
     try {
       // Log the expected endpoint URL for debugging
       const platform = navigator.platform.toLowerCase()
-      const arch = navigator.userAgent.includes('x64') || navigator.userAgent.includes('x86_64')
-        ? 'x86_64'
-        : navigator.userAgent.includes('aarch64') || navigator.userAgent.includes('arm64')
-        ? 'aarch64'
-        : 'x86_64'
+      const arch =
+        navigator.userAgent.includes('x64') || navigator.userAgent.includes('x86_64')
+          ? 'x86_64'
+          : navigator.userAgent.includes('aarch64') || navigator.userAgent.includes('arm64')
+            ? 'aarch64'
+            : 'x86_64'
 
       let target = 'unknown'
       if (platform.includes('mac') || platform.includes('darwin')) {
@@ -89,7 +92,7 @@ export function useUpdater(): UseUpdaterReturn {
         platform,
         arch,
         target,
-        endpoint: expectedUrl
+        endpoint: expectedUrl,
       })
 
       const update = await check()
@@ -123,7 +126,7 @@ export function useUpdater(): UseUpdaterReturn {
       const errorDetails = {
         message: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
-        type: error instanceof Error ? error.constructor.name : typeof error
+        type: error instanceof Error ? error.constructor.name : typeof error,
       }
       await logUpdaterEvent('ERROR', 'Failed to check for updates', errorDetails)
       setState(prev => ({
@@ -142,7 +145,7 @@ export function useUpdater(): UseUpdaterReturn {
     }
 
     await logUpdaterEvent('INFO', 'Starting download and install', {
-      version: updateInstance.version
+      version: updateInstance.version,
     })
     setState(prev => ({ ...prev, isDownloading: true, error: null, downloadProgress: 0 }))
 
@@ -152,11 +155,11 @@ export function useUpdater(): UseUpdaterReturn {
       let chunkCount = 0
       await logUpdaterEvent('INFO', 'Calling downloadAndInstall on update instance')
 
-      await updateInstance.downloadAndInstall((event) => {
+      await updateInstance.downloadAndInstall(event => {
         switch (event.event) {
           case 'Started':
             logUpdaterEvent('INFO', 'Download started', {
-              contentLength: event.data.contentLength
+              contentLength: event.data.contentLength,
             })
             setState(prev => ({ ...prev, isDownloading: true }))
             break
@@ -166,7 +169,10 @@ export function useUpdater(): UseUpdaterReturn {
             totalDownloaded += event.data.chunkLength
             // Log every 10th chunk to avoid spam
             if (chunkCount % 10 === 0) {
-              logUpdaterEvent('INFO', `Download progress: ${chunkCount} chunks, ${totalDownloaded} bytes`)
+              logUpdaterEvent(
+                'INFO',
+                `Download progress: ${chunkCount} chunks, ${totalDownloaded} bytes`
+              )
             }
             setState(prev => ({
               ...prev,
@@ -176,7 +182,7 @@ export function useUpdater(): UseUpdaterReturn {
           case 'Finished':
             logUpdaterEvent('INFO', 'Download finished, starting installation', {
               totalDownloaded,
-              chunkCount
+              chunkCount,
             })
             setState(prev => ({
               ...prev,
@@ -193,7 +199,7 @@ export function useUpdater(): UseUpdaterReturn {
       // Update installed successfully, relaunch the app
       await logUpdaterEvent('INFO', 'Installation complete, preparing to relaunch app', {
         version: updateInstance.version,
-        totalDownloaded
+        totalDownloaded,
       })
       setState(prev => ({ ...prev, isInstalling: false }))
 
@@ -207,7 +213,8 @@ export function useUpdater(): UseUpdaterReturn {
         const relaunchDetails = {
           message: relaunchError instanceof Error ? relaunchError.message : String(relaunchError),
           stack: relaunchError instanceof Error ? relaunchError.stack : undefined,
-          type: relaunchError instanceof Error ? relaunchError.constructor.name : typeof relaunchError,
+          type:
+            relaunchError instanceof Error ? relaunchError.constructor.name : typeof relaunchError,
           errorCode: (relaunchError as any).code,
           errorName: (relaunchError as any).name,
         }
@@ -219,7 +226,7 @@ export function useUpdater(): UseUpdaterReturn {
         message: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
         type: error instanceof Error ? error.constructor.name : typeof error,
-        version: updateInstance.version
+        version: updateInstance.version,
       }
       await logUpdaterEvent('ERROR', 'Failed to download and install update', errorDetails)
       setState(prev => ({

@@ -1,7 +1,7 @@
 import { useToastStore } from '../stores/toastStore'
 
 export function useToast() {
-  const addToast = useToastStore((state) => state.addToast)
+  const addToast = useToastStore(state => state.addToast)
 
   return {
     success: (message: string, duration?: number) => {
@@ -15,6 +15,6 @@ export function useToast() {
     },
     warning: (message: string, duration?: number) => {
       addToast({ type: 'warning', message, duration })
-    }
+    },
   }
 }

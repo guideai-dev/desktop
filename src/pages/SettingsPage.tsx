@@ -9,7 +9,8 @@ import { useNavigate } from 'react-router-dom'
 function SettingsPage() {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
-  const { aiApiKeys, setAiApiKey, deleteAiApiKey, systemConfig, updateSystemConfig } = useConfigStore()
+  const { aiApiKeys, setAiApiKey, deleteAiApiKey, systemConfig, updateSystemConfig } =
+    useConfigStore()
   const { resetTour, hasCompletedTour } = useOnboarding()
   const {
     hasUpdate,
@@ -46,16 +47,16 @@ function SettingsPage() {
       <div className="mb-6 flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-base-content">Settings</h1>
-          <p className="text-base-content/70 mt-1">
-            Manage your account and application settings
-          </p>
+          <p className="text-base-content/70 mt-1">Manage your account and application settings</p>
         </div>
-        <button
-          onClick={() => navigate('/logs')}
-          className="btn btn-outline btn-sm gap-2"
-        >
+        <button onClick={() => navigate('/logs')} className="btn btn-outline btn-sm gap-2">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+            />
           </svg>
           Logs
         </button>
@@ -82,7 +83,9 @@ function SettingsPage() {
                     </div>
                   </div>
                   <div>
-                    <div className="text-lg font-medium">{user.name || user.username || 'User'}</div>
+                    <div className="text-lg font-medium">
+                      {user.name || user.username || 'User'}
+                    </div>
                     <div className="text-sm text-base-content/70">@{user.username}</div>
                   </div>
                 </div>
@@ -107,10 +110,7 @@ function SettingsPage() {
 
                 <div className="divider"></div>
 
-                <button
-                  onClick={handleLogout}
-                  className="btn btn-error btn-outline"
-                >
+                <button onClick={handleLogout} className="btn btn-error btn-outline">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
                       strokeLinecap="round"
@@ -134,7 +134,10 @@ function SettingsPage() {
         </div>
 
         {/* AI Processing Settings */}
-        <div className="card bg-base-100 shadow-sm border border-base-300" data-tour="ai-processing">
+        <div
+          className="card bg-base-100 shadow-sm border border-base-300"
+          data-tour="ai-processing"
+        >
           <div className="card-body">
             <h2 className="card-title">AI Processing</h2>
             <p className="text-sm text-base-content/70 mb-4">
@@ -147,7 +150,9 @@ function SettingsPage() {
               <div className="form-control">
                 <label className="label">
                   <span className="label-text font-medium">Claude API Key</span>
-                  <span className="label-text-alt text-xs">For session summaries & quality scores</span>
+                  <span className="label-text-alt text-xs">
+                    For session summaries & quality scores
+                  </span>
                 </label>
                 <div className="flex gap-2">
                   <div className="flex-1 relative">
@@ -156,7 +161,7 @@ function SettingsPage() {
                       placeholder="sk-ant-..."
                       className="input input-bordered w-full pr-20"
                       value={claudeKey}
-                      onChange={(e) => setClaudeKey(e.target.value)}
+                      onChange={e => setClaudeKey(e.target.value)}
                     />
                     <button
                       type="button"
@@ -164,13 +169,38 @@ function SettingsPage() {
                       onClick={() => setShowClaudeKey(!showClaudeKey)}
                     >
                       {showClaudeKey ? (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
+                          />
                         </svg>
                       ) : (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                          />
                         </svg>
                       )}
                     </button>
@@ -214,7 +244,7 @@ function SettingsPage() {
                       placeholder="AIza..."
                       className="input input-bordered w-full pr-20"
                       value={geminiKey}
-                      onChange={(e) => setGeminiKey(e.target.value)}
+                      onChange={e => setGeminiKey(e.target.value)}
                     />
                     <button
                       type="button"
@@ -222,13 +252,38 @@ function SettingsPage() {
                       onClick={() => setShowGeminiKey(!showGeminiKey)}
                     >
                       {showGeminiKey ? (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
+                          />
                         </svg>
                       ) : (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                          />
                         </svg>
                       )}
                     </button>
@@ -261,13 +316,38 @@ function SettingsPage() {
 
               <div className="alert alert-info">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
                 </svg>
                 <div className="text-sm">
                   <p className="font-medium">How to get API keys:</p>
                   <ul className="mt-1 space-y-1">
-                    <li>• Claude: <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" className="link">console.anthropic.com</a></li>
-                    <li>• Gemini: <a href="https://makersuite.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="link">makersuite.google.com</a></li>
+                    <li>
+                      • Claude:{' '}
+                      <a
+                        href="https://console.anthropic.com"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="link"
+                      >
+                        console.anthropic.com
+                      </a>
+                    </li>
+                    <li>
+                      • Gemini:{' '}
+                      <a
+                        href="https://makersuite.google.com/app/apikey"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="link"
+                      >
+                        makersuite.google.com
+                      </a>
+                    </li>
                   </ul>
                 </div>
               </div>
@@ -280,7 +360,8 @@ function SettingsPage() {
           <div className="card-body">
             <h2 className="card-title">Help & Tour</h2>
             <p className="text-sm text-base-content/70 mb-4">
-              Take a guided tour of GuideAI to learn how to configure providers, sync sessions, and view analytics.
+              Take a guided tour of GuideAI to learn how to configure providers, sync sessions, and
+              view analytics.
             </p>
 
             <div className="flex items-center justify-between p-4 bg-base-200 rounded-lg">
@@ -292,10 +373,7 @@ function SettingsPage() {
                     : 'Start the tour to learn about GuideAI features'}
                 </div>
               </div>
-              <button
-                onClick={handleRestartTour}
-                className="btn btn-primary"
-              >
+              <button onClick={handleRestartTour} className="btn btn-primary">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     strokeLinecap="round"
@@ -323,14 +401,18 @@ function SettingsPage() {
               <div className="form-control">
                 <label className="label">
                   <span className="label-text font-medium">Core Metrics Debounce</span>
-                  <span className="label-text-alt text-xs">{systemConfig.coreMetricsDebounceSeconds}s</span>
+                  <span className="label-text-alt text-xs">
+                    {systemConfig.coreMetricsDebounceSeconds}s
+                  </span>
                 </label>
                 <input
                   type="range"
                   min="5"
                   max="60"
                   value={systemConfig.coreMetricsDebounceSeconds}
-                  onChange={(e) => updateSystemConfig({ coreMetricsDebounceSeconds: parseInt(e.target.value) })}
+                  onChange={e =>
+                    updateSystemConfig({ coreMetricsDebounceSeconds: parseInt(e.target.value) })
+                  }
                   className="range range-primary"
                   step="5"
                 />
@@ -340,7 +422,9 @@ function SettingsPage() {
                   <span>60s</span>
                 </div>
                 <label className="label">
-                  <span className="label-text-alt">Wait time after file activity stops before processing core metrics</span>
+                  <span className="label-text-alt">
+                    Wait time after file activity stops before processing core metrics
+                  </span>
                 </label>
               </div>
 
@@ -348,14 +432,18 @@ function SettingsPage() {
               <div className="form-control">
                 <label className="label">
                   <span className="label-text font-medium">AI Processing Delay</span>
-                  <span className="label-text-alt text-xs">{systemConfig.aiProcessingDelayMinutes}m</span>
+                  <span className="label-text-alt text-xs">
+                    {systemConfig.aiProcessingDelayMinutes}m
+                  </span>
                 </label>
                 <input
                   type="range"
                   min="1"
                   max="60"
                   value={systemConfig.aiProcessingDelayMinutes}
-                  onChange={(e) => updateSystemConfig({ aiProcessingDelayMinutes: parseInt(e.target.value) })}
+                  onChange={e =>
+                    updateSystemConfig({ aiProcessingDelayMinutes: parseInt(e.target.value) })
+                  }
                   className="range range-primary"
                   step="1"
                 />
@@ -365,17 +453,30 @@ function SettingsPage() {
                   <span>60m</span>
                 </div>
                 <label className="label">
-                  <span className="label-text-alt">Wait time after session ends before processing AI summaries (requires API key)</span>
+                  <span className="label-text-alt">
+                    Wait time after session ends before processing AI summaries (requires API key)
+                  </span>
                 </label>
               </div>
 
               <div className="alert alert-info">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
                 </svg>
                 <div className="text-sm">
-                  <p><strong>Core Metrics:</strong> Basic statistics (performance, usage, errors) processed locally without AI.</p>
-                  <p className="mt-1"><strong>AI Processing:</strong> Advanced summaries and quality scores generated using your configured AI API.</p>
+                  <p>
+                    <strong>Core Metrics:</strong> Basic statistics (performance, usage, errors)
+                    processed locally without AI.
+                  </p>
+                  <p className="mt-1">
+                    <strong>AI Processing:</strong> Advanced summaries and quality scores generated
+                    using your configured AI API.
+                  </p>
                 </div>
               </div>
             </div>
@@ -413,7 +514,12 @@ function SettingsPage() {
                 <div className="divider"></div>
                 <div className="alert alert-error">
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
                   </svg>
                   <div>
                     <h3 className="font-bold">Update Error</h3>
@@ -428,11 +534,18 @@ function SettingsPage() {
                 <div className="divider"></div>
                 <div className="alert alert-success">
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
                   </svg>
                   <div>
                     <h3 className="font-bold">App is Up to Date</h3>
-                    <div className="text-sm">You're running the latest version {currentVersion}</div>
+                    <div className="text-sm">
+                      You're running the latest version {currentVersion}
+                    </div>
                   </div>
                 </div>
               </>
@@ -443,11 +556,18 @@ function SettingsPage() {
                 <div className="divider"></div>
                 <div className="alert alert-success">
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                    />
                   </svg>
                   <div className="flex-1">
                     <h3 className="font-bold">Update Available</h3>
-                    <div className="text-sm">Version {latestVersion} is now available. Click below to download and install.</div>
+                    <div className="text-sm">
+                      Version {latestVersion} is now available. Click below to download and install.
+                    </div>
                   </div>
                 </div>
 
@@ -457,7 +577,11 @@ function SettingsPage() {
                       <span>{isInstalling ? 'Installing...' : 'Downloading...'}</span>
                       <span>{downloadProgress}%</span>
                     </div>
-                    <progress className="progress progress-success w-full" value={downloadProgress} max="100"></progress>
+                    <progress
+                      className="progress progress-success w-full"
+                      value={downloadProgress}
+                      max="100"
+                    ></progress>
                   </div>
                 ) : (
                   <button
@@ -466,7 +590,12 @@ function SettingsPage() {
                     disabled={isDownloading || isInstalling}
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                      />
                     </svg>
                     Download and Install Update
                   </button>
@@ -489,8 +618,18 @@ function SettingsPage() {
                     </>
                   ) : (
                     <>
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                        />
                       </svg>
                       Check for Updates
                     </>

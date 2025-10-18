@@ -17,7 +17,7 @@ export function useQuickRating() {
     mutationFn: async ({ sessionId, rating }: QuickRatingParams) => {
       try {
         const result = await invoke('quick_rate_session', {
-          sessionId,  // Tauri converts camelCase to snake_case automatically
+          sessionId, // Tauri converts camelCase to snake_case automatically
           rating,
         })
         return result
@@ -33,7 +33,7 @@ export function useQuickRating() {
       queryClient.invalidateQueries({ queryKey: ['local-sessions'] })
       queryClient.invalidateQueries({ queryKey: ['session-metadata'] })
     },
-    onError: (error) => {
+    onError: error => {
       console.error('Rating mutation error:', error)
     },
   })

@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react'
 import { CodingAgent, ProviderConfig } from '../../types/providers'
-import { useProviderConfig, useSaveProviderConfig, useScanProjects } from '../../hooks/useProviderConfig'
+import {
+  useProviderConfig,
+  useSaveProviderConfig,
+  useScanProjects,
+} from '../../hooks/useProviderConfig'
 import { useAuth } from '../../hooks/useAuth'
 import { useLocation } from 'react-router-dom'
 import { useDirectoryExists } from '../../hooks/useDirectoryExists'
@@ -9,22 +13,22 @@ import { open } from '@tauri-apps/plugin-dialog'
 import {
   useClaudeWatcherStatus,
   useStartClaudeWatcher,
-  useStopClaudeWatcher
+  useStopClaudeWatcher,
 } from '../../hooks/useClaudeWatcher'
 import {
   useCopilotWatcherStatus,
   useStartCopilotWatcher,
-  useStopCopilotWatcher
+  useStopCopilotWatcher,
 } from '../../hooks/useCopilotWatcher'
 import {
   useOpenCodeWatcherStatus,
   useStartOpenCodeWatcher,
-  useStopOpenCodeWatcher
+  useStopOpenCodeWatcher,
 } from '../../hooks/useOpenCodeWatcher'
 import {
   useCodexWatcherStatus,
   useStartCodexWatcher,
-  useStopCodexWatcher
+  useStopCodexWatcher,
 } from '../../hooks/useCodexWatcher'
 import { formatDistanceToNow } from 'date-fns'
 import ProviderIcon from '../icons/ProviderIcon'
@@ -44,7 +48,9 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
   const [shouldFlash, setShouldFlash] = useState(false)
 
   // Track pending sync mode change for confirmation
-  const [pendingSyncMode, setPendingSyncMode] = useState<'Transcript and Metrics' | 'Metrics Only' | null>(null)
+  const [pendingSyncMode, setPendingSyncMode] = useState<
+    'Transcript and Metrics' | 'Metrics Only' | null
+  >(null)
 
   // Watcher hooks - conditional based on provider
   const { data: claudeWatcherStatus } = useClaudeWatcherStatus()
@@ -52,38 +58,71 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
   const { mutate: stopClaudeWatcher, isPending: stoppingClaudeWatcher } = useStopClaudeWatcher()
 
   const { data: copilotWatcherStatus } = useCopilotWatcherStatus()
-  const { mutate: startCopilotWatcher, isPending: startingCopilotWatcher } = useStartCopilotWatcher()
+  const { mutate: startCopilotWatcher, isPending: startingCopilotWatcher } =
+    useStartCopilotWatcher()
   const { mutate: stopCopilotWatcher, isPending: stoppingCopilotWatcher } = useStopCopilotWatcher()
 
   const { data: opencodeWatcherStatus } = useOpenCodeWatcherStatus()
-  const { mutate: startOpenCodeWatcher, isPending: startingOpenCodeWatcher } = useStartOpenCodeWatcher()
-  const { mutate: stopOpenCodeWatcher, isPending: stoppingOpenCodeWatcher } = useStopOpenCodeWatcher()
+  const { mutate: startOpenCodeWatcher, isPending: startingOpenCodeWatcher } =
+    useStartOpenCodeWatcher()
+  const { mutate: stopOpenCodeWatcher, isPending: stoppingOpenCodeWatcher } =
+    useStopOpenCodeWatcher()
 
   const { data: codexWatcherStatus } = useCodexWatcherStatus()
   const { mutate: startCodexWatcher, isPending: startingCodexWatcher } = useStartCodexWatcher()
   const { mutate: stopCodexWatcher, isPending: stoppingCodexWatcher } = useStopCodexWatcher()
 
   // Get the appropriate status and functions for the current provider
-  const watcherStatus = agent.id === 'claude-code' ? claudeWatcherStatus :
-                        agent.id === 'github-copilot' ? copilotWatcherStatus :
-                        agent.id === 'opencode' ? opencodeWatcherStatus :
-                        agent.id === 'codex' ? codexWatcherStatus : undefined
-  const startWatcher = agent.id === 'claude-code' ? startClaudeWatcher :
-                       agent.id === 'github-copilot' ? startCopilotWatcher :
-                       agent.id === 'opencode' ? startOpenCodeWatcher :
-                       agent.id === 'codex' ? startCodexWatcher : undefined
-  const stopWatcher = agent.id === 'claude-code' ? stopClaudeWatcher :
-                      agent.id === 'github-copilot' ? stopCopilotWatcher :
-                      agent.id === 'opencode' ? stopOpenCodeWatcher :
-                      agent.id === 'codex' ? stopCodexWatcher : undefined
-  const startingWatcher = agent.id === 'claude-code' ? startingClaudeWatcher :
-                          agent.id === 'github-copilot' ? startingCopilotWatcher :
-                          agent.id === 'opencode' ? startingOpenCodeWatcher :
-                          agent.id === 'codex' ? startingCodexWatcher : false
-  const stoppingWatcher = agent.id === 'claude-code' ? stoppingClaudeWatcher :
-                          agent.id === 'github-copilot' ? stoppingCopilotWatcher :
-                          agent.id === 'opencode' ? stoppingOpenCodeWatcher :
-                          agent.id === 'codex' ? stoppingCodexWatcher : false
+  const watcherStatus =
+    agent.id === 'claude-code'
+      ? claudeWatcherStatus
+      : agent.id === 'github-copilot'
+        ? copilotWatcherStatus
+        : agent.id === 'opencode'
+          ? opencodeWatcherStatus
+          : agent.id === 'codex'
+            ? codexWatcherStatus
+            : undefined
+  const startWatcher =
+    agent.id === 'claude-code'
+      ? startClaudeWatcher
+      : agent.id === 'github-copilot'
+        ? startCopilotWatcher
+        : agent.id === 'opencode'
+          ? startOpenCodeWatcher
+          : agent.id === 'codex'
+            ? startCodexWatcher
+            : undefined
+  const stopWatcher =
+    agent.id === 'claude-code'
+      ? stopClaudeWatcher
+      : agent.id === 'github-copilot'
+        ? stopCopilotWatcher
+        : agent.id === 'opencode'
+          ? stopOpenCodeWatcher
+          : agent.id === 'codex'
+            ? stopCodexWatcher
+            : undefined
+  const startingWatcher =
+    agent.id === 'claude-code'
+      ? startingClaudeWatcher
+      : agent.id === 'github-copilot'
+        ? startingCopilotWatcher
+        : agent.id === 'opencode'
+          ? startingOpenCodeWatcher
+          : agent.id === 'codex'
+            ? startingCodexWatcher
+            : false
+  const stoppingWatcher =
+    agent.id === 'claude-code'
+      ? stoppingClaudeWatcher
+      : agent.id === 'github-copilot'
+        ? stoppingCopilotWatcher
+        : agent.id === 'opencode'
+          ? stoppingOpenCodeWatcher
+          : agent.id === 'codex'
+            ? stoppingCodexWatcher
+            : false
 
   const [localConfig, setLocalConfig] = useState<ProviderConfig>({
     enabled: false,
@@ -91,7 +130,7 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
     projectSelection: 'ALL',
     selectedProjects: [],
     lastScanned: null,
-    syncMode: 'Nothing'
+    syncMode: 'Nothing',
   })
 
   const effectiveHomeDirectory = localConfig.homeDirectory || agent.defaultHomeDirectory
@@ -134,8 +173,6 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
     }
   }, [location.hash, location.pathname])
 
-
-
   const handleEnabledChange = (enabled: boolean) => {
     const newConfig = { ...localConfig, enabled }
 
@@ -156,9 +193,10 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
     if (enabled) {
       // Auto-start watching when enabling (if we can)
       if (canStartWatcher && !watcherStatus?.is_running && startWatcher) {
-        const projectsToWatch = newConfig.projectSelection === 'ALL'
-          ? projects.map(p => p.name)
-          : newConfig.selectedProjects
+        const projectsToWatch =
+          newConfig.projectSelection === 'ALL'
+            ? projects.map(p => p.name)
+            : newConfig.selectedProjects
         if (projectsToWatch.length > 0) {
           startWatcher(projectsToWatch)
         }
@@ -197,9 +235,10 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
 
       // Auto-start watching if not running and we can
       if (!watcherStatus?.is_running && startWatcher) {
-        const projectsToWatch = newConfig.projectSelection === 'ALL'
-          ? projects.map(p => p.name)
-          : newConfig.selectedProjects
+        const projectsToWatch =
+          newConfig.projectSelection === 'ALL'
+            ? projects.map(p => p.name)
+            : newConfig.selectedProjects
         if (projectsToWatch.length > 0) {
           startWatcher(projectsToWatch)
         }
@@ -231,9 +270,10 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
   const handleStartWatcher = () => {
     if (!startWatcher) return
 
-    const projectsToWatch = localConfig.projectSelection === 'ALL'
-      ? projects.map(p => p.name)
-      : localConfig.selectedProjects
+    const projectsToWatch =
+      localConfig.projectSelection === 'ALL'
+        ? projects.map(p => p.name)
+        : localConfig.selectedProjects
 
     startWatcher(projectsToWatch)
   }
@@ -261,7 +301,10 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
 
   const isConfigLoading = configLoading || saving
   const isWatcherBusy = startingWatcher || stoppingWatcher
-  const canStartWatcher = localConfig.enabled && directoryExists && startWatcher !== undefined &&
+  const canStartWatcher =
+    localConfig.enabled &&
+    directoryExists &&
+    startWatcher !== undefined &&
     (localConfig.projectSelection === 'ALL' || localConfig.selectedProjects.length > 0)
 
   // Note: Autostart has been moved to Rust code at application startup
@@ -275,7 +318,9 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
         <div className="flex items-start justify-between mb-2">
           <div className="flex items-center gap-3">
             <div className={`avatar placeholder`}>
-              <div className={`bg-base-200 rounded-lg w-10 h-10 flex items-center justify-center p-1.5`}>
+              <div
+                className={`bg-base-200 rounded-lg w-10 h-10 flex items-center justify-center p-1.5`}
+              >
                 <ProviderIcon providerId={agent.id} size={24} />
               </div>
             </div>
@@ -294,7 +339,7 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
                   type="checkbox"
                   className="toggle toggle-primary"
                   checked={localConfig.enabled}
-                  onChange={(e) => handleEnabledChange(e.target.checked)}
+                  onChange={e => handleEnabledChange(e.target.checked)}
                   disabled={isConfigLoading}
                 />
               </label>
@@ -310,7 +355,12 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
           {directoryExists === false && (
             <div className="bg-base-200 border border-base-300 rounded-lg p-4">
               <div className="flex items-start gap-3">
-                <svg className="w-5 h-5 text-base-content/50 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg
+                  className="w-5 h-5 text-base-content/50 flex-shrink-0 mt-0.5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -319,10 +369,16 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
                   />
                 </svg>
                 <div className="flex-1">
-                  <div className="font-medium text-base-content/80 text-sm">Provider Not Installed</div>
+                  <div className="font-medium text-base-content/80 text-sm">
+                    Provider Not Installed
+                  </div>
                   <div className="text-sm text-base-content/60 mt-1">
-                    The directory <code className="bg-base-300 px-1 rounded text-xs">{effectiveHomeDirectory}</code> does not exist.
-                    Install {agent.name} or set a custom directory below to enable this provider.
+                    The directory{' '}
+                    <code className="bg-base-300 px-1 rounded text-xs">
+                      {effectiveHomeDirectory}
+                    </code>{' '}
+                    does not exist. Install {agent.name} or set a custom directory below to enable
+                    this provider.
                   </div>
                 </div>
               </div>
@@ -340,7 +396,7 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
                   type="text"
                   className="input input-bordered flex-1"
                   value={localConfig.homeDirectory}
-                  onChange={(e) => handleConfigChange({ homeDirectory: e.target.value })}
+                  onChange={e => handleConfigChange({ homeDirectory: e.target.value })}
                   placeholder={agent.defaultHomeDirectory}
                   disabled={isConfigLoading}
                 />
@@ -366,13 +422,17 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
                 <label className="label pb-2">
                   <span className="label-text text-base font-semibold">File Watching</span>
                 </label>
-                <div className={`bg-base-200 rounded-lg p-4 space-y-3 ${!localConfig.enabled ? 'opacity-50' : ''}`}>
+                <div
+                  className={`bg-base-200 rounded-lg p-4 space-y-3 ${!localConfig.enabled ? 'opacity-50' : ''}`}
+                >
                   {/* Watcher Status */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <div className={`w-2 h-2 rounded-full ${
-                        watcherStatus?.is_running ? 'bg-success' : 'bg-base-content/30'
-                      }`} />
+                      <div
+                        className={`w-2 h-2 rounded-full ${
+                          watcherStatus?.is_running ? 'bg-success' : 'bg-base-content/30'
+                        }`}
+                      />
                       <span className="text-sm">
                         {watcherStatus?.is_running ? 'Watching files' : 'Not watching'}
                       </span>
@@ -417,10 +477,11 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
                       {!localConfig.enabled
                         ? 'Enable the provider to start file watching'
                         : directoryExists === false
-                        ? 'Cannot start watcher - directory does not exist'
-                        : localConfig.projectSelection === 'SELECTED' && localConfig.selectedProjects.length === 0
-                        ? 'Select at least one project to watch'
-                        : 'Configure your projects above to start watching'}
+                          ? 'Cannot start watcher - directory does not exist'
+                          : localConfig.projectSelection === 'SELECTED' &&
+                              localConfig.selectedProjects.length === 0
+                            ? 'Select at least one project to watch'
+                            : 'Configure your projects above to start watching'}
                     </div>
                   )}
                 </div>
@@ -445,7 +506,9 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
                       className="radio radio-primary"
                       checked={localConfig.syncMode === 'Nothing'}
                       onChange={() => handleConfigChange({ syncMode: 'Nothing' })}
-                      disabled={isConfigLoading || !localConfig.enabled || directoryExists === false}
+                      disabled={
+                        isConfigLoading || !localConfig.enabled || directoryExists === false
+                      }
                     />
                     <span className="label-text">Nothing</span>
                   </label>
@@ -456,7 +519,9 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
                       className="radio radio-primary"
                       checked={localConfig.syncMode === 'Metrics Only'}
                       onChange={() => handleConfigChange({ syncMode: 'Metrics Only' })}
-                      disabled={isConfigLoading || !localConfig.enabled || directoryExists === false}
+                      disabled={
+                        isConfigLoading || !localConfig.enabled || directoryExists === false
+                      }
                     />
                     <span className="label-text">Metrics Only</span>
                   </label>
@@ -467,26 +532,34 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
                       className="radio radio-primary"
                       checked={localConfig.syncMode === 'Transcript and Metrics'}
                       onChange={() => handleConfigChange({ syncMode: 'Transcript and Metrics' })}
-                      disabled={isConfigLoading || !localConfig.enabled || directoryExists === false}
+                      disabled={
+                        isConfigLoading || !localConfig.enabled || directoryExists === false
+                      }
                     />
                     <span className="label-text">Transcript & Metrics</span>
                   </label>
                 </div>
                 {localConfig.syncMode === 'Nothing' && (
                   <div className="label pt-2">
-                    <span className="label-text-alt text-warning">⚠ Sessions will only be stored locally</span>
+                    <span className="label-text-alt text-warning">
+                      ⚠ Sessions will only be stored locally
+                    </span>
                   </div>
                 )}
                 {localConfig.syncMode === 'Metrics Only' && (
                   <div className="label pt-2">
-                    <span className="label-text-alt text-info">🔒 Privacy mode: Transcripts stay local, only metrics synced</span>
+                    <span className="label-text-alt text-info">
+                      🔒 Privacy mode: Transcripts stay local, only metrics synced
+                    </span>
                   </div>
                 )}
               </div>
             )}
 
             {/* Project Selection */}
-            <div className={`form-control ${!localConfig.enabled || directoryExists === false ? 'opacity-50' : ''}`}>
+            <div
+              className={`form-control ${!localConfig.enabled || directoryExists === false ? 'opacity-50' : ''}`}
+            >
               <label className="label pb-2">
                 <span className="label-text text-base font-semibold">Projects</span>
               </label>
@@ -530,7 +603,7 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-xs">
-                      {projects.map((project) => {
+                      {projects.map(project => {
                         const modifiedDate = new Date(project.lastModified)
                         const modifiedLabel = Number.isNaN(modifiedDate.getTime())
                           ? 'Unknown'
@@ -550,7 +623,9 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
                               className="checkbox checkbox-primary checkbox-xs"
                               checked={isSelected}
                               onChange={() => handleProjectToggle(project.name)}
-                              disabled={isConfigLoading || !localConfig.enabled || directoryExists === false}
+                              disabled={
+                                isConfigLoading || !localConfig.enabled || directoryExists === false
+                              }
                             />
                             <span className="truncate flex-1">{project.name}</span>
                             <span className="text-[11px] text-base-content/60 shrink-0">
@@ -585,13 +660,15 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
       {/* Sync Mode Confirmation Dialog */}
       <ConfirmDialog
         isOpen={pendingSyncMode !== null}
-        title={pendingSyncMode === 'Metrics Only'
-          ? "Enable Privacy-Aware Sync?"
-          : "Enable Full Synchronization?"
+        title={
+          pendingSyncMode === 'Metrics Only'
+            ? 'Enable Privacy-Aware Sync?'
+            : 'Enable Full Synchronization?'
         }
-        message={pendingSyncMode === 'Metrics Only'
-          ? "This will upload only session metadata and metrics to the server. Your transcripts will remain completely private on your local machine. Historical and future metrics will be synced."
-          : "This will upload all historical and future transcripts and metrics to the server (they can be subsequently deleted there if you need to). Are you sure you want to enable this feature?"
+        message={
+          pendingSyncMode === 'Metrics Only'
+            ? 'This will upload only session metadata and metrics to the server. Your transcripts will remain completely private on your local machine. Historical and future metrics will be synced.'
+            : 'This will upload all historical and future transcripts and metrics to the server (they can be subsequently deleted there if you need to). Are you sure you want to enable this feature?'
         }
         confirmText="Enable"
         cancelText="Cancel"

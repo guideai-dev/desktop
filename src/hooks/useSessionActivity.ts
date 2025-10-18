@@ -14,7 +14,7 @@ export function useSessionActivity() {
 
   useEffect(() => {
     // Listen for session update events from file watchers (real file changes)
-    const unlistenUpdated = listen<string>('session-updated', (event) => {
+    const unlistenUpdated = listen<string>('session-updated', event => {
       const sessionId = event.payload
       if (sessionId) {
         markSessionActive(sessionId)

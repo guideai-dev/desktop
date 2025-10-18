@@ -18,7 +18,7 @@ interface OnboardingState {
 
 export const useOnboardingStore = create<OnboardingState>()(
   persist(
-    (set) => ({
+    set => ({
       hasCompletedTour: false,
       isTourRunning: false,
       currentStepIndex: 0,
@@ -27,17 +27,19 @@ export const useOnboardingStore = create<OnboardingState>()(
 
       stopTour: () => set({ isTourRunning: false }),
 
-      completeTour: () => set({
-        hasCompletedTour: true,
-        isTourRunning: false,
-        currentStepIndex: 0
-      }),
+      completeTour: () =>
+        set({
+          hasCompletedTour: true,
+          isTourRunning: false,
+          currentStepIndex: 0,
+        }),
 
-      resetTour: () => set({
-        hasCompletedTour: false,
-        currentStepIndex: 0,
-        isTourRunning: true
-      }),
+      resetTour: () =>
+        set({
+          hasCompletedTour: false,
+          currentStepIndex: 0,
+          isTourRunning: true,
+        }),
 
       setStepIndex: (index: number) => set({ currentStepIndex: index }),
     }),

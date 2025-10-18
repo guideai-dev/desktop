@@ -19,8 +19,12 @@ function OverviewPage() {
       </div>
 
       <div className="grid gap-3">
-        {CODING_AGENTS.map((agent) => (
-          <ProviderCard key={agent.id} agent={agent} onConfigure={() => navigate(`/provider/${agent.id}`)} />
+        {CODING_AGENTS.map(agent => (
+          <ProviderCard
+            key={agent.id}
+            agent={agent}
+            onConfigure={() => navigate(`/provider/${agent.id}`)}
+          />
         ))}
       </div>
     </div>
@@ -28,7 +32,7 @@ function OverviewPage() {
 }
 
 interface ProviderCardProps {
-  agent: typeof CODING_AGENTS[0]
+  agent: (typeof CODING_AGENTS)[0]
   onConfigure: () => void
 }
 
@@ -49,10 +53,7 @@ function ProviderCard({ agent, onConfigure }: ProviderCardProps) {
               </div>
               <h3 className="text-base font-semibold">{agent.name} Logs</h3>
             </div>
-            <button
-              onClick={() => setShowLogs(false)}
-              className="btn btn-sm btn-ghost"
-            >
+            <button onClick={() => setShowLogs(false)} className="btn btn-sm btn-ghost">
               Back
             </button>
           </div>
@@ -73,7 +74,9 @@ function ProviderCard({ agent, onConfigure }: ProviderCardProps) {
             className="flex items-center gap-3 hover:opacity-70 transition-opacity"
           >
             <div className={`avatar placeholder`}>
-              <div className={`bg-base-200 rounded-lg w-10 h-10 flex items-center justify-center p-1.5`}>
+              <div
+                className={`bg-base-200 rounded-lg w-10 h-10 flex items-center justify-center p-1.5`}
+              >
                 <ProviderIcon providerId={agent.id} size={28} />
               </div>
             </div>
@@ -88,25 +91,21 @@ function ProviderCard({ agent, onConfigure }: ProviderCardProps) {
               <span className="loading loading-spinner loading-sm"></span>
             ) : (
               <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${
-                  config?.enabled ? 'bg-success' : 'bg-base-content/30'
-                }`} />
+                <div
+                  className={`w-2 h-2 rounded-full ${
+                    config?.enabled ? 'bg-success' : 'bg-base-content/30'
+                  }`}
+                />
                 <span className="text-sm text-base-content/70">
                   {config?.enabled ? 'Enabled' : 'Disabled'}
                 </span>
               </div>
             )}
-            <button
-              className="btn btn-sm btn-ghost gap-2"
-              onClick={() => setShowLogs(true)}
-            >
+            <button className="btn btn-sm btn-ghost gap-2" onClick={() => setShowLogs(true)}>
               <DocumentTextIcon className="w-4 h-4" />
               Logs
             </button>
-            <button
-              className="btn btn-sm btn-primary"
-              onClick={onConfigure}
-            >
+            <button className="btn btn-sm btn-primary" onClick={onConfigure}>
               Configure
             </button>
           </div>
@@ -117,10 +116,10 @@ function ProviderCard({ agent, onConfigure }: ProviderCardProps) {
             <div className="text-xs text-base-content/70 space-y-1">
               <div>Home: {config.homeDirectory || agent.defaultHomeDirectory}</div>
               <div>
-                Projects: {config.projectSelection === 'ALL'
+                Projects:{' '}
+                {config.projectSelection === 'ALL'
                   ? 'All projects'
-                  : `${config.selectedProjects.length} selected`
-                }
+                  : `${config.selectedProjects.length} selected`}
               </div>
             </div>
           </div>

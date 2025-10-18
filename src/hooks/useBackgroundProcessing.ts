@@ -46,12 +46,7 @@ export function useBackgroundProcessing() {
               filePath: session.file_path,
               sessionId: session.session_id,
             })
-            await processSession(
-              session.session_id,
-              session.provider,
-              content,
-              'local'
-            )
+            await processSession(session.session_id, session.provider, content, 'local')
             console.log(`✓ Processed session ${session.session_id}`)
           } catch (err) {
             console.error(`Failed to process session ${session.session_id}:`, err)
