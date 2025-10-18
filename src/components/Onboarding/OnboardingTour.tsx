@@ -1,6 +1,6 @@
 import { useEffect, useCallback } from 'react'
 import Joyride, { CallBackProps, Step, STATUS, EVENTS, ACTIONS, TooltipRenderProps } from 'react-joyride'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useOnboarding } from '../../hooks/useOnboarding'
 
 // Global styles for Joyride arrow to match border (base-300 color)
@@ -70,7 +70,6 @@ function restoreScrolling() {
 
 export function OnboardingTour() {
   const navigate = useNavigate()
-  const location = useLocation()
   const {
     isTourRunning,
     currentStepIndex,

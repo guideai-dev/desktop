@@ -19,11 +19,11 @@ function DashboardPage() {
   const { sessions, loading } = useLocalSessions()
 
   // Get watcher statuses
-  const { data: claudeStatus } = useClaudeWatcherStatus()
-  const { data: copilotStatus } = useCopilotWatcherStatus()
-  const { data: opencodeStatus } = useOpenCodeWatcherStatus()
-  const { data: codexStatus } = useCodexWatcherStatus()
-  const { data: geminiStatus } = useGeminiWatcherStatus()
+  useClaudeWatcherStatus()
+  useCopilotWatcherStatus()
+  useOpenCodeWatcherStatus()
+  useCodexWatcherStatus()
+  useGeminiWatcherStatus()
 
   // Get provider statuses
   const { status: claudeStatusEnum } = useProviderStatus('claude-code')

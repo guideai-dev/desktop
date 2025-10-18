@@ -4,7 +4,7 @@ import type { AgentSession } from '@guideai-dev/types'
 import { useState, useEffect } from 'react'
 
 interface SessionWithMetrics extends AgentSession {
-  filePath?: string
+  filePath: string | null
   syncedToServer?: boolean
   syncFailedReason?: string | null
   metrics?: {
