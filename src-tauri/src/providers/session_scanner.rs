@@ -18,6 +18,7 @@ pub struct SessionInfo {
     pub file_size: u64,
     pub content: Option<String>, // For OpenCode sessions with in-memory content
     pub cwd: Option<String>,     // Working directory for the session
+    pub project_hash: Option<String>, // Project hash (for Gemini Code - SHA256 of CWD)
 }
 
 #[derive(Debug, Deserialize)]
@@ -55,6 +56,7 @@ pub fn scan_all_sessions(
         "github-copilot" => scan_copilot_sessions(base_path),
         "opencode" => scan_opencode_sessions(base_path),
         "codex" => scan_codex_sessions(base_path),
+        "gemini-code" => scan_gemini_sessions(base_path),
         _ => Err(format!("Unsupported provider: {}", provider_id)),
     }
 }
@@ -220,6 +222,7 @@ fn parse_claude_session(file_path: &Path, project_name: &str) -> Result<SessionI
         file_size,
         content: None, // Claude Code sessions use files directly
         cwd,           // CWD will be used to derive real project name during upload
+        project_hash: None, // Not used for Claude Code
     })
 }
 
@@ -314,6 +317,7 @@ fn parse_opencode_session(
         file_size,
         content: None, // Now using cached file, not in-memory content
         cwd: parsed_session.cwd,
+        project_hash: None, // Not used for OpenCode
     })
 }
 
@@ -497,36 +501,145 @@ fn parse_codex_session(file_path: &Path) -> Result<SessionInfo, String> {
         file_size,
         content: None,  // Codex sessions use files directly
         cwd: Some(cwd), // Codex sessions have CWD from parsing
+        project_hash: None, // Not used for Codex
     })
 }
 
-#[derive(Debug, Deserialize)]
-struct CopilotSessionFile {
-    #[serde(rename = "sessionId")]
-    session_id: String,
-    #[serde(rename = "startTime")]
-    start_time: String,
-    #[serde(rename = "chatMessages")]
-    chat_messages: Vec<serde_json::Value>,
-}
-
 fn parse_copilot_session(file_path: &Path) -> Result<SessionInfo, String> {
+    use super::copilot_parser::{detect_project_and_cwd_from_timeline, load_copilot_config, CopilotSession};
+    use super::copilot_snapshot::SnapshotManager;
+
+    // Read and parse the SOURCE Copilot JSON file
     let content =
         fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {}", e))?;
 
-    // Parse the Copilot session JSON
-    let session: CopilotSessionFile = serde_json::from_str(&content)
+    // Parse the Copilot session JSON (with timeline)
+    let copilot_session: CopilotSession = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse Copilot session JSON: {}", e))?;
 
-    // Parse start time
-    let session_start_time = DateTime::parse_from_rfc3339(&session.start_time)
-        .ok()
-        .map(|dt| dt.with_timezone(&Utc));
+    let timeline = &copilot_session.timeline;
 
-    // Estimate end time from last message (Copilot doesn't store explicit end time)
-    let session_end_time = session_start_time.map(|start| {
-        // Add number of messages as a rough estimate (1 minute per message)
-        start + chrono::Duration::minutes(session.chat_messages.len() as i64)
+    // Skip if timeline is empty
+    if timeline.is_empty() {
+        return Err("Session has empty timeline".to_string());
+    }
+
+    // Detect project name and cwd from timeline entries (same as watcher)
+    let (project_name, project_cwd) = match load_copilot_config() {
+        Ok(config) => {
+            if !config.trusted_folders.is_empty() {
+                if let Some((name, cwd)) =
+                    detect_project_and_cwd_from_timeline(timeline, &config.trusted_folders)
+                {
+                    (name, Some(cwd))
+                } else {
+                    ("copilot-sessions".to_string(), None)
+                }
+            } else {
+                ("copilot-sessions".to_string(), None)
+            }
+        }
+        Err(_) => ("copilot-sessions".to_string(), None),
+    };
+
+    // Create snapshot manager (same as watcher)
+    let snapshot_manager = SnapshotManager::new()
+        .map_err(|e| format!("Failed to create snapshot manager: {}", e))?;
+
+    // Load metadata (with file lock)
+    let (mut metadata, lock_file) = snapshot_manager
+        .load_metadata_locked()
+        .map_err(|e| format!("Failed to load metadata: {}", e))?;
+
+    // Get or create snapshot (same logic as watcher)
+    let snapshot_id = snapshot_manager
+        .get_or_create_session(
+            &mut metadata,
+            file_path,
+            &copilot_session.session_id,
+            &copilot_session.start_time,
+            timeline,
+            project_cwd.as_deref(),
+        )
+        .map_err(|e| format!("Failed to create snapshot: {}", e))?;
+
+    // Save metadata
+    snapshot_manager
+        .save_metadata_atomic(&metadata, lock_file)
+        .map_err(|e| format!("Failed to save metadata: {}", e))?;
+
+    // Get snapshot path
+    let snapshot_path = snapshot_manager.get_snapshot_path(snapshot_id);
+    let file_size = fs::metadata(&snapshot_path).map(|m| m.len()).unwrap_or(0);
+
+    let file_name = format!("{}.jsonl", snapshot_id);
+
+    // Extract timing from the snapshot JSONL (same as db_helpers does)
+    let (session_start_time, session_end_time, duration_ms) =
+        extract_timing_from_jsonl(&snapshot_path)?;
+
+    Ok(SessionInfo {
+        provider: "github-copilot".to_string(),
+        project_name,
+        session_id: snapshot_id.to_string(), // Use snapshot UUID, not source session ID
+        file_path: snapshot_path, // Use snapshot path, not source path
+        file_name,
+        session_start_time,
+        session_end_time,
+        duration_ms,
+        file_size,
+        content: None,
+        cwd: project_cwd,
+        project_hash: None,
+    })
+}
+
+// Helper to extract timing from JSONL (same logic as db_helpers)
+fn extract_timing_from_jsonl(
+    file_path: &Path,
+) -> Result<(Option<DateTime<Utc>>, Option<DateTime<Utc>>, Option<i64>), String> {
+    let content = fs::read_to_string(file_path)
+        .map_err(|e| format!("Failed to read snapshot file: {}", e))?;
+
+    let lines: Vec<&str> = content
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+
+    if lines.is_empty() {
+        return Ok((None, None, None));
+    }
+
+    // Find first line with timestamp
+    let session_start_time = lines.iter().find_map(|line| {
+        serde_json::from_str::<serde_json::Value>(line)
+            .ok()
+            .and_then(|entry| {
+                entry
+                    .get("timestamp")
+                    .and_then(|ts| ts.as_str())
+                    .and_then(|ts_str| {
+                        DateTime::parse_from_rfc3339(ts_str)
+                            .ok()
+                            .map(|dt| dt.with_timezone(&Utc))
+                    })
+            })
+    });
+
+    // Find last line with timestamp
+    let session_end_time = lines.iter().rev().find_map(|line| {
+        serde_json::from_str::<serde_json::Value>(line)
+            .ok()
+            .and_then(|entry| {
+                entry
+                    .get("timestamp")
+                    .and_then(|ts| ts.as_str())
+                    .and_then(|ts_str| {
+                        DateTime::parse_from_rfc3339(ts_str)
+                            .ok()
+                            .map(|dt| dt.with_timezone(&Utc))
+                    })
+            })
     });
 
     // Calculate duration
@@ -535,43 +648,171 @@ fn parse_copilot_session(file_path: &Path) -> Result<SessionInfo, String> {
         _ => None,
     };
 
-    // Get file size
-    let file_size = fs::metadata(file_path).map(|m| m.len()).unwrap_or(0);
+    Ok((session_start_time, session_end_time, duration_ms))
+}
 
-    let file_name = file_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("unknown.json")
-        .to_string();
+fn scan_gemini_sessions(base_path: &Path) -> Result<Vec<SessionInfo>, String> {
+    // Gemini uses ~/.gemini/tmp/{hash}/chats/session-*.json structure
+    let tmp_path = base_path.join("tmp");
+    if !tmp_path.exists() {
+        return Ok(Vec::new());
+    }
 
-    // Extract session ID from filename if needed (format: session_{uuid}_{timestamp}.json)
-    let session_id = file_path
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .and_then(|name| {
-            // Remove "session_" prefix and everything after the last underscore (timestamp)
-            if let Some(stripped) = name.strip_prefix("session_") {
-                if let Some(last_underscore) = stripped.rfind('_') {
-                    return Some(stripped[..last_underscore].to_string());
+    let mut sessions = Vec::new();
+
+    // Recursively scan project hash directories
+    let entries = fs::read_dir(&tmp_path)
+        .map_err(|e| format!("Failed to read Gemini tmp directory: {}", e))?;
+
+    for entry in entries.flatten() {
+        let project_path = entry.path();
+
+        // Skip the 'bin' directory
+        if let Some(name) = project_path.file_name().and_then(|n| n.to_str()) {
+            if name == "bin" {
+                continue;
+            }
+        }
+
+        if !project_path.is_dir() {
+            continue;
+        }
+
+        let chats_path = project_path.join("chats");
+        if !chats_path.exists() {
+            continue;
+        }
+
+        // Scan all session files in the chats directory
+        if let Ok(chat_entries) = fs::read_dir(&chats_path) {
+            for chat_entry in chat_entries.flatten() {
+                let file_path = chat_entry.path();
+
+                // Only process session JSON files
+                if let Some(filename) = file_path.file_name().and_then(|n| n.to_str()) {
+                    if filename.starts_with("session-") && filename.ends_with(".json") {
+                        match parse_gemini_session(&file_path) {
+                            Ok(session_info) => {
+                                sessions.push(session_info);
+                            }
+                            Err(e) => {
+                                if let Err(log_err) = log_warn(
+                                    "gemini-code",
+                                    &format!(
+                                        "Failed to parse Gemini session {}: {}",
+                                        file_path.display(),
+                                        e
+                                    ),
+                                ) {
+                                    eprintln!("Logging error: {}", log_err);
+                                }
+                            }
+                        }
+                    }
                 }
             }
-            None
-        })
-        .unwrap_or_else(|| session.session_id.clone());
+        }
+    }
+
+    if let Err(e) = log_info(
+        "gemini-code",
+        &format!("📊 Found {} Gemini sessions", sessions.len()),
+    ) {
+        eprintln!("Logging error: {}", e);
+    }
+
+    Ok(sessions)
+}
+
+fn parse_gemini_session(file_path: &Path) -> Result<SessionInfo, String> {
+    use super::gemini_parser::GeminiSession;
+    use super::common::extract_session_id_from_filename;
+
+    let content =
+        fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {}", e))?;
+
+    // Parse the Gemini session JSON
+    let session: GeminiSession = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse Gemini session JSON: {}", e))?;
+
+    // IMPORTANT: Use filename as session_id (not the sessionId field from JSON)
+    // This matches the watcher behavior and ensures consistency
+    let session_id = extract_session_id_from_filename(file_path);
+
+    // Parse start time
+    let session_start_time = DateTime::parse_from_rfc3339(&session.start_time)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc));
+
+    // Parse last updated time as end time
+    let session_end_time = DateTime::parse_from_rfc3339(&session.last_updated)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc));
+
+    // Calculate duration
+    let duration_ms = match (session_start_time, session_end_time) {
+        (Some(start), Some(end)) => Some((end - start).num_milliseconds()),
+        _ => None,
+    };
+
+    // Create cache directory for JSONL files (similar to OpenCode)
+    let cache_dir = dirs::home_dir()
+        .ok_or("Could not find home directory")?
+        .join(".guideai")
+        .join("cache")
+        .join("gemini-code");
+
+    fs::create_dir_all(&cache_dir)
+        .map_err(|e| format!("Failed to create cache directory: {}", e))?;
+
+    // Try to extract CWD from message content using shared function
+    let cwd = extract_cwd_from_gemini_session(&session);
+
+    // Convert to JSONL format and cache it (with CWD enrichment)
+    // Use the extracted session_id from filename, not from JSON
+    let file_name = format!("{}.jsonl", session_id);
+    let cached_file_path = cache_dir.join(&file_name);
+
+    let jsonl_content = session
+        .to_jsonl(cwd.as_deref())
+        .map_err(|e| format!("Failed to convert to JSONL: {}", e))?;
+
+    fs::write(&cached_file_path, &jsonl_content)
+        .map_err(|e| format!("Failed to write cached JSONL: {}", e))?;
+
+    let file_size = jsonl_content.len() as u64;
+
+    // Determine project name from CWD or use hash
+    let project_name = if let Some(cwd_path) = &cwd {
+        Path::new(cwd_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(&session.project_hash)
+            .to_string()
+    } else {
+        format!("gemini-{}", &session.project_hash[..8])
+    };
 
     Ok(SessionInfo {
-        provider: "github-copilot".to_string(),
-        project_name: "copilot-sessions".to_string(), // Copilot doesn't have projects
-        session_id,
-        file_path: file_path.to_path_buf(),
+        provider: "gemini-code".to_string(),
+        project_name,
+        session_id, // Use filename-based ID, not session.session_id from JSON
+        file_path: cached_file_path,
         file_name,
         session_start_time,
         session_end_time,
         duration_ms,
         file_size,
-        content: None, // Copilot sessions use files directly
-        cwd: None,     // Copilot sessions don't have explicit CWD
+        content: None, // Now using cached file, not in-memory content
+        cwd,
+        project_hash: Some(session.project_hash), // Used for filtering Gemini sessions
     })
+}
+
+/// Extract CWD from Gemini session using shared extraction logic
+fn extract_cwd_from_gemini_session(session: &super::gemini_parser::GeminiSession) -> Option<String> {
+    use super::gemini::infer_cwd_from_session;
+    infer_cwd_from_session(session, &session.project_hash)
 }
 
 #[cfg(test)]

@@ -10,6 +10,7 @@ import { useLocation } from 'react-router-dom'
 import { useDirectoryExists } from '../../hooks/useDirectoryExists'
 import ConfirmDialog from '../ConfirmDialog'
 import { open } from '@tauri-apps/plugin-dialog'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   useClaudeWatcherStatus,
   useStartClaudeWatcher,
@@ -32,6 +33,8 @@ import {
 } from '../../hooks/useCodexWatcher'
 import { formatDistanceToNow } from 'date-fns'
 import ProviderIcon from '../icons/ProviderIcon'
+import SetupInstructions from './SetupInstructions'
+import { useSetupInstructions } from '../../hooks/useSetupInstructions'
 
 interface AgentConfigProps {
   agent: CodingAgent
@@ -41,8 +44,13 @@ interface AgentConfigProps {
 function AgentConfig({ agent, headerActions }: AgentConfigProps) {
   const { user } = useAuth()
   const location = useLocation()
+  const queryClient = useQueryClient()
   const { data: config, isLoading: configLoading } = useProviderConfig(agent.id)
   const { mutate: saveConfig, isPending: saving } = useSaveProviderConfig()
+  const { data: setupInstructions, isLoading: setupInstructionsLoading } = useSetupInstructions(
+    agent.id,
+    agent.setupInstructionsFile
+  )
 
   // Track flash animation state for sync mode navigation
   const [shouldFlash, setShouldFlash] = useState(false)
@@ -216,6 +224,12 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
       }
     }
 
+    // Trigger rescan when switching to "Selected Only" mode
+    if (updates.projectSelection === 'SELECTED' && localConfig.projectSelection !== 'SELECTED') {
+      // Invalidate the projects query to force a fresh scan
+      queryClient.invalidateQueries({ queryKey: ['projects', agent.id, effectiveHomeDirectory] })
+    }
+
     applySyncModeChange(updates)
   }
 
@@ -257,11 +271,21 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
     setPendingSyncMode(null)
   }
 
-  const handleProjectToggle = (projectName: string) => {
-    const isSelected = localConfig.selectedProjects.includes(projectName)
+  // Extract project identifier from path
+  // For Gemini: use the hash (stored in project.path)
+  // For other providers: use the project name
+  const getProjectIdentifier = (project: { name: string; path: string }): string => {
+    if (agent.id === 'gemini-code') {
+      return project.path // Hash for Gemini (not CWD)
+    }
+    return project.name
+  }
+
+  const handleProjectToggle = (projectIdentifier: string) => {
+    const isSelected = localConfig.selectedProjects.includes(projectIdentifier)
     const selectedProjects = isSelected
-      ? localConfig.selectedProjects.filter(p => p !== projectName)
-      : [...localConfig.selectedProjects, projectName]
+      ? localConfig.selectedProjects.filter(p => p !== projectIdentifier)
+      : [...localConfig.selectedProjects, projectIdentifier]
 
     handleConfigChange({ selectedProjects })
   }
@@ -350,6 +374,18 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
         {/* Configuration */}
         <>
           <div className="divider my-4"></div>
+
+          {/* Setup Instructions */}
+          {agent.setupInstructionsFile && setupInstructions && (
+            <div className="mb-4">
+              <SetupInstructions
+                content={setupInstructions}
+                isLoading={setupInstructionsLoading}
+                isProviderInstalled={directoryExists !== false}
+                providerName={agent.name}
+              />
+            </div>
+          )}
 
           {/* Directory Not Found Note */}
           {directoryExists === false && (
@@ -609,11 +645,12 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
                           ? 'Unknown'
                           : formatDistanceToNow(modifiedDate, { addSuffix: true })
 
-                        const isSelected = localConfig.selectedProjects.includes(project.name)
+                        const projectId = getProjectIdentifier(project)
+                        const isSelected = localConfig.selectedProjects.includes(projectId)
 
                         return (
                           <label
-                            key={project.name}
+                            key={projectId}
                             className={`cursor-pointer flex items-center gap-2 px-2 py-1 rounded hover:bg-base-200 ${
                               isSelected ? 'bg-base-200' : ''
                             }`}
@@ -622,7 +659,7 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
                               type="checkbox"
                               className="checkbox checkbox-primary checkbox-xs"
                               checked={isSelected}
-                              onChange={() => handleProjectToggle(project.name)}
+                              onChange={() => handleProjectToggle(projectId)}
                               disabled={
                                 isConfigLoading || !localConfig.enabled || directoryExists === false
                               }

@@ -205,6 +205,7 @@ fn main() {
             commands::load_provider_config_command,
             commands::save_provider_config_command,
             commands::delete_provider_config_command,
+            commands::load_setup_instructions_command,
             commands::scan_projects_command,
             commands::check_directory_exists,
             commands::add_activity_log_command,

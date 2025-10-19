@@ -1,7 +1,7 @@
 use ignore::WalkBuilder;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Context file information returned to the frontend
 #[derive(Debug, Clone, Serialize, Deserialize)]

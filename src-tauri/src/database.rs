@@ -700,6 +700,28 @@ pub fn attach_session_to_project(session_id: &str, project_id: &str) -> Result<(
     Ok(())
 }
 
+/// Update a session's project_name field
+/// Used when linking a session to a project to sync the project_name field
+pub fn update_session_project_name(session_id: &str, project_name: &str) -> Result<()> {
+    with_connection_mut(|conn| {
+        conn.execute(
+            "UPDATE agent_sessions SET project_name = ? WHERE session_id = ?",
+            params![project_name, session_id],
+        )?;
+
+        log_debug(
+            "database",
+            &format!(
+                "↻ Updated project_name for session {} to '{}'",
+                session_id, project_name
+            ),
+        )
+        .unwrap_or_default();
+
+        Ok(())
+    })
+}
+
 #[derive(Debug, Clone)]
 pub struct ProjectWithCount {
     pub id: String,

@@ -384,10 +384,12 @@ pub fn log_updater_event(
     log_provider_event("updater", level, message, details)
 }
 
+#[allow(dead_code)]
 pub fn log_updater_info(message: &str) -> Result<(), Box<dyn std::error::Error>> {
     log_updater_event("INFO", message, None)
 }
 
+#[allow(dead_code)]
 pub fn log_updater_error(message: &str, details: Option<serde_json::Value>) -> Result<(), Box<dyn std::error::Error>> {
     log_updater_event("ERROR", message, details)
 }

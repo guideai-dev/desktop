@@ -206,6 +206,21 @@ pub async fn delete_provider_config_command(provider_id: String) -> Result<(), S
     delete_provider_config(&provider_id).map_err(|e| e.to_string())
 }
 
+// Setup instructions command
+#[tauri::command]
+pub async fn load_setup_instructions_command(file_name: String) -> Result<String, String> {
+    // Setup instructions are bundled as resources at compile time using include_str! macro
+    // This embeds the files directly into the binary at build time
+    match file_name.as_str() {
+        "gemini-code.md" => Ok(include_str!("../../setup-instructions/gemini-code.md").to_string()),
+        "claude-code.md" => Ok(include_str!("../../setup-instructions/claude-code.md").to_string()),
+        "github-copilot.md" => Ok(include_str!("../../setup-instructions/github-copilot.md").to_string()),
+        "opencode.md" => Ok(include_str!("../../setup-instructions/opencode.md").to_string()),
+        "codex.md" => Ok(include_str!("../../setup-instructions/codex.md").to_string()),
+        _ => Err(format!("Unknown setup instructions file: {}", file_name)),
+    }
+}
+
 // Project scanning commands
 #[tauri::command]
 pub async fn scan_projects_command(
@@ -648,7 +663,7 @@ pub async fn start_gemini_watcher(
         state.upload_queue.set_config(config);
     }
 
-    // Create new watcher - Gemini uses project hashes instead of names
+    // Create new watcher - projects parameter now contains hashes (not CWDs)
     let watcher = GeminiWatcher::new(projects, Arc::clone(&state.upload_queue), state.event_bus.clone())
         .map_err(|e| format!("Failed to create Gemini watcher: {}", e))?;
 
@@ -887,7 +902,19 @@ pub async fn scan_historical_sessions(provider_id: String) -> Result<Vec<Session
         let filtered: Vec<SessionInfo> = all_sessions
             .into_iter()
             .filter(|session| {
-                let is_selected = config.selected_projects.contains(&session.project_name);
+                // For Gemini, use project_hash for filtering (since selectedProjects contains hashes)
+                // For other providers, use project_name
+                let is_selected = if provider_id == "gemini-code" {
+                    if let Some(ref hash) = session.project_hash {
+                        config.selected_projects.contains(hash)
+                    } else {
+                        // Fallback to name-based filtering if hash is missing
+                        config.selected_projects.contains(&session.project_name)
+                    }
+                } else {
+                    config.selected_projects.contains(&session.project_name)
+                };
+
                 if !is_selected {
                     if let Err(e) = log_debug(
                         &provider_id,
@@ -1421,24 +1448,14 @@ pub fn start_enabled_watchers(app_state: &AppState) {
     // Try to start Gemini Code watcher if enabled
     if let Ok(gemini_config) = load_provider_config("gemini-code") {
         if gemini_config.enabled {
-            // Scan for projects - Gemini returns projects with hashes
+            // Scan for projects - scan_projects now returns hashes in the path field
             match crate::providers::scan_projects("gemini-code", &gemini_config.home_directory) {
                 Ok(projects) => {
-                    // Gemini watcher needs project hashes (stored in project.path)
                     let projects_to_watch = if gemini_config.project_selection == "ALL" {
-                        // For Gemini, we need to extract hashes from paths
-                        projects
-                            .iter()
-                            .filter_map(|p| {
-                                // Extract hash from path like ~/.gemini/tmp/{hash}
-                                std::path::Path::new(&p.path)
-                                    .file_name()
-                                    .and_then(|n| n.to_str())
-                                    .map(|s| s.to_string())
-                            })
-                            .collect()
+                        // For ALL mode, pass all hashes (stored in path field)
+                        projects.iter().map(|p| p.path.clone()).collect()
                     } else {
-                        // Selected projects are already hashes for Gemini
+                        // selected_projects now contains hashes (not CWDs)
                         gemini_config.selected_projects
                     };
 

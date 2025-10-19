@@ -73,29 +73,13 @@ impl GeminiWatcher {
             .into());
         }
 
-        // Determine which projects to watch
-        let projects_to_watch = if config.project_selection == "ALL" {
-            // Watch all available project hashes
-            Self::discover_all_projects(&tmp_path)?
-        } else {
-            // Watch only selected projects
-            let selected_projects: Vec<String> = config
-                .selected_projects
-                .into_iter()
-                .filter(|project| project_hashes.contains(project))
-                .collect();
-
-            if selected_projects.is_empty() {
-                return Err("No valid projects selected for watching".into());
-            }
-
-            selected_projects
-        };
+        // Use the provided project hashes directly
+        let projects_to_watch = project_hashes;
 
         if let Err(e) = log_info(
             PROVIDER_ID,
             &format!(
-                "📁 Monitoring {} Gemini Code projects (hashes)",
+                "📁 Monitoring {} Gemini Code projects",
                 projects_to_watch.len()
             ),
         ) {
@@ -157,6 +141,7 @@ impl GeminiWatcher {
         })
     }
 
+    #[allow(dead_code)]
     fn discover_all_projects(
         tmp_path: &Path,
     ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
@@ -250,12 +235,16 @@ impl GeminiWatcher {
                             is_new_session,
                         );
 
+                        // Extract real project name from JSONL (CWD -> project name)
+                        // Fallback to shortened hash if CWD extraction fails
+                        let project_name = Self::extract_project_name_from_jsonl(&jsonl_path)
+                            .unwrap_or_else(|| format!("gemini-{}", &file_event.project_hash[..8]));
+
                         // Publish SessionChanged event to event bus
                         // DatabaseEventHandler will call db_helpers which does smart insert-or-update
-                        // Note: project_hash is used as temporary project_name here
                         let payload = SessionEventPayload::SessionChanged {
                             session_id: file_event.session_id.clone(),
-                            project_name: file_event.project_hash.clone(), // Temporary - db_helpers will extract real name
+                            project_name, // Real project name extracted from CWD
                             file_path: jsonl_path.clone(), // Use JSONL path instead of original JSON
                             file_size: jsonl_size,  // Use JSONL file size
                         };
@@ -421,96 +410,33 @@ impl GeminiWatcher {
     }
 
     /// Infer working directory from Gemini session messages
+    /// Uses the shared CWD extraction function from gemini.rs
     fn infer_cwd_from_session(session: &GeminiSession) -> Option<String> {
-        // Check ALL messages (user and gemini), since file paths can appear in:
-        // - User messages containing tool responses (e.g., "[Function Response: read_file]--- /Users/...")
-        // - Gemini messages containing file references
-        for message in &session.messages {
-            // Get all candidate paths from this message
-            let candidate_paths = Self::extract_candidate_paths_from_content(&message.content);
-
-            // Try each candidate path, testing progressively shorter paths
-            for base_path in candidate_paths {
-                if let Some(matching_path) = Self::find_matching_path(&base_path, &session.project_hash) {
-                    return Some(matching_path);
-                }
-            }
-        }
-        None
+        use super::gemini::infer_cwd_from_session as shared_infer_cwd;
+        shared_infer_cwd(session, &session.project_hash)
     }
 
-    /// Extract all candidate file paths from message content
-    fn extract_candidate_paths_from_content(content: &str) -> Vec<String> {
-        let mut paths = Vec::new();
-        let lines: Vec<&str> = content.lines().collect();
+    /// Extract project name from JSONL file by reading CWD field
+    /// Returns the last path component of the CWD (e.g., "/Users/cliftonc/work/guideai" -> "guideai")
+    fn extract_project_name_from_jsonl(jsonl_path: &PathBuf) -> Option<String> {
+        // Read first few lines to find CWD
+        let content = fs::read_to_string(jsonl_path).ok()?;
+        let lines: Vec<&str> = content.lines().take(50).collect();
 
+        // Find first line with a CWD field
         for line in lines {
-            // Look for absolute paths (Unix and Windows)
-            if line.contains("/Users/") || line.contains("/home/") || line.contains("C:\\") {
-                // Prefer paths after '---' delimiter (common in tool output)
-                let search_text = if let Some(delimiter_pos) = line.find("---") {
-                    &line[delimiter_pos + 3..]
-                } else {
-                    line
-                };
-
-                // Extract all absolute paths from the line
-                let parts: Vec<&str> = search_text.split_whitespace().collect();
-                for part in parts {
-                    // Unix paths
-                    if part.starts_with('/') {
-                        paths.push(part.to_string());
-                    }
-                    // Windows paths
-                    else if part.len() > 3 && part.chars().nth(1) == Some(':') && part.chars().nth(2) == Some('\\') {
-                        paths.push(part.to_string());
-                    }
+            if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
+                if let Some(cwd) = entry.get("cwd").and_then(|v| v.as_str()) {
+                    // Extract project name from CWD path
+                    return Path::new(cwd)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|s| s.to_string());
                 }
-            }
-        }
-
-        paths
-    }
-
-    /// Try progressively shorter paths until we find one matching the hash
-    fn find_matching_path(full_path: &str, expected_hash: &str) -> Option<String> {
-        use std::path::Path;
-
-        let path_buf = Path::new(full_path);
-        let mut current_path = path_buf;
-
-        // Try the full path first, then progressively remove the last segment
-        loop {
-            if let Some(path_str) = current_path.to_str() {
-                // Skip root and empty paths
-                if !path_str.is_empty() && path_str != "/" && path_str != "\\" {
-                    // Test if this path's hash matches
-                    if Self::verify_hash(path_str, expected_hash) {
-                        return Some(path_str.to_string());
-                    }
-                }
-            }
-
-            // Move up to parent directory
-            match current_path.parent() {
-                Some(parent) if parent != current_path => {
-                    current_path = parent;
-                }
-                _ => break, // No more parents or reached root
             }
         }
 
         None
-    }
-
-    /// Verify that SHA256(workdir) == hash
-    fn verify_hash(workdir: &str, expected_hash: &str) -> bool {
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(workdir.as_bytes());
-        let result = hasher.finalize();
-        let computed_hash = hex::encode(result);
-        computed_hash == expected_hash
     }
 
 
@@ -576,82 +502,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_extract_candidate_paths_from_content() {
-        let content = r#"
---- /Users/cliftonc/work/guideai/CLAUDE.md ---
-Some content here
---- /Users/cliftonc/work/guideai/apps/desktop/CLAUDE.md ---
-More content
-"#;
-
-        let paths = GeminiWatcher::extract_candidate_paths_from_content(content);
-        assert_eq!(paths.len(), 2);
-        assert!(paths.contains(&"/Users/cliftonc/work/guideai/CLAUDE.md".to_string()));
-        assert!(paths.contains(&"/Users/cliftonc/work/guideai/apps/desktop/CLAUDE.md".to_string()));
-    }
-
-    #[test]
-    fn test_extract_candidate_paths_no_delimiter() {
-        let content = "Reading file /home/user/projects/myapp/src/main.rs";
-
-        let paths = GeminiWatcher::extract_candidate_paths_from_content(content);
-        assert_eq!(paths.len(), 1);
-        assert_eq!(paths[0], "/home/user/projects/myapp/src/main.rs");
-    }
-
-    #[test]
-    fn test_extract_candidate_paths_multiple_per_line() {
-        let content = "Comparing /Users/test/work/app/file1.txt and /Users/test/work/app/file2.txt";
-
-        let paths = GeminiWatcher::extract_candidate_paths_from_content(content);
-        assert_eq!(paths.len(), 2);
-    }
-
-    #[test]
-    fn test_find_matching_path_exact_match() {
-        // Hash for "/Users/cliftonc/work/guideai"
-        let expected_hash = "7e95bdea1c91b994ca74439a92c90b82767abc9c0b8566e20ab60b2a797fc332";
-        let full_path = "/Users/cliftonc/work/guideai/CLAUDE.md";
-
-        let result = GeminiWatcher::find_matching_path(full_path, expected_hash);
-        assert_eq!(result, Some("/Users/cliftonc/work/guideai".to_string()));
-    }
-
-    #[test]
-    fn test_find_matching_path_nested_file() {
-        // Hash for "/Users/cliftonc/work/guideai"
-        let expected_hash = "7e95bdea1c91b994ca74439a92c90b82767abc9c0b8566e20ab60b2a797fc332";
-        let full_path = "/Users/cliftonc/work/guideai/apps/desktop/src/main.rs";
-
-        let result = GeminiWatcher::find_matching_path(full_path, expected_hash);
-        assert_eq!(result, Some("/Users/cliftonc/work/guideai".to_string()));
-    }
-
-    #[test]
-    fn test_find_matching_path_no_match() {
-        // Random hash that won't match
-        let expected_hash = "0000000000000000000000000000000000000000000000000000000000000000";
-        let full_path = "/Users/test/project/file.txt";
-
-        let result = GeminiWatcher::find_matching_path(full_path, expected_hash);
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn test_verify_hash() {
-        // Known hash for "/Users/cliftonc/work/guideai"
-        let workdir = "/Users/cliftonc/work/guideai";
-        let expected_hash = "7e95bdea1c91b994ca74439a92c90b82767abc9c0b8566e20ab60b2a797fc332";
-
-        assert!(GeminiWatcher::verify_hash(workdir, expected_hash));
-    }
-
-    #[test]
-    fn test_verify_hash_mismatch() {
-        let workdir = "/Users/cliftonc/work/guideai";
-        let wrong_hash = "0000000000000000000000000000000000000000000000000000000000000000";
-
-        assert!(!GeminiWatcher::verify_hash(workdir, wrong_hash));
-    }
+    // Tests for CWD extraction helpers have been moved to gemini.rs
+    // (extract_candidate_paths_from_content, find_matching_path, verify_hash are now shared functions)
 }

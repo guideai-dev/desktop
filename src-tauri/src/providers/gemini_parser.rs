@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeminiSession {
@@ -18,6 +19,24 @@ pub struct GeminiSession {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCall {
+    pub id: String,
+    pub name: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub args: Option<serde_json::Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<Vec<serde_json::Value>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>, // Preserve all other Gemini-specific fields
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeminiMessage {
     pub id: String,
     pub timestamp: String,
@@ -26,6 +45,9 @@ pub struct GeminiMessage {
     pub message_type: String, // "user" or "gemini"
 
     pub content: String,
+
+    #[serde(rename = "toolCalls", skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thoughts: Option<Vec<Thought>>,
@@ -60,30 +82,107 @@ impl GeminiSession {
         serde_json::from_str(json_str)
     }
 
-    /// Convert Gemini JSON session to JSONL format (one message per line)
-    /// Uses minimal transformation - preserves full Gemini message structure in gemini_raw field
-    /// Only adds essential fields needed for session tracking and compatibility
+    /// Convert Gemini JSON session to JSONL format
+    /// Emits Claude-compatible format for tool calls (separate tool_use/tool_result lines)
+    /// Preserves Gemini-specific fields (thoughts, tokens, model) in additional fields
     pub fn to_jsonl(&self, cwd: Option<&str>) -> Result<String, serde_json::Error> {
         let mut lines = Vec::new();
 
         for message in &self.messages {
-            // Create minimal JSONL entry with essential fields only
-            // The full Gemini message is preserved in gemini_raw for frontend parsing
-            let mut entry = serde_json::json!({
-                "uuid": message.id,
-                "sessionId": self.session_id,
-                "timestamp": message.timestamp,
-                "provider": "gemini-code",
-                "projectHash": self.project_hash,
-                "gemini_raw": message, // Preserve full Gemini message structure
-            });
+            // Emit tool calls as separate Claude-compatible JSONL lines
+            if let Some(ref tool_calls) = message.tool_calls {
+                for tool_call in tool_calls {
+                    // Tool use (assistant message with tool_use content)
+                    let tool_use_entry = serde_json::json!({
+                        "uuid": tool_call.id.clone(),
+                        "sessionId": self.session_id,
+                        "timestamp": message.timestamp,
+                        "provider": "gemini-code",
+                        "type": "assistant",
+                        "message": {
+                            "role": "assistant",
+                            "content": [{
+                                "type": "tool_use",
+                                "id": tool_call.id,
+                                "name": tool_call.name,
+                                "input": tool_call.args.clone().unwrap_or(serde_json::json!({}))
+                            }]
+                        },
+                        "cwd": cwd
+                    });
+                    lines.push(serde_json::to_string(&tool_use_entry)?);
 
-            // Add CWD if provided (for session tracking and project linking)
-            if let Some(cwd_path) = cwd {
-                entry["cwd"] = serde_json::Value::String(cwd_path.to_string());
+                    // Tool result (assistant message with tool_result content)
+                    if let Some(ref result) = tool_call.result {
+                        // Extract the actual output from Gemini's functionResponse wrapper
+                        // Result format: [{ functionResponse: { response: { output: "..." } } }]
+                        let content = if let Some(fr) = result.get(0).and_then(|r| r.get("functionResponse")) {
+                            // Try to extract the response.output field for shell commands
+                            if let Some(response) = fr.get("response") {
+                                if let Some(output) = response.get("output") {
+                                    output.clone()
+                                } else {
+                                    // Fallback: use the whole response object
+                                    response.clone()
+                                }
+                            } else {
+                                // Fallback: use the whole functionResponse
+                                fr.clone()
+                            }
+                        } else {
+                            // Fallback: use the raw result if structure doesn't match
+                            serde_json::Value::Array(result.clone())
+                        };
+
+                        let tool_result_entry = serde_json::json!({
+                            "uuid": format!("{}_result", tool_call.id),
+                            "sessionId": self.session_id,
+                            "timestamp": message.timestamp,
+                            "provider": "gemini-code",
+                            "type": "tool_result",
+                            "message": {
+                                "role": "assistant",
+                                "content": [{
+                                    "type": "tool_result",
+                                    "tool_use_id": tool_call.id,
+                                    "content": content
+                                }]
+                            },
+                            "cwd": cwd
+                        });
+                        lines.push(serde_json::to_string(&tool_result_entry)?);
+                    }
+                }
             }
 
-            lines.push(serde_json::to_string(&entry)?);
+            // Emit main message with Gemini-specific fields preserved
+            if !message.content.is_empty() || message.thoughts.is_some() {
+                let mut entry = serde_json::json!({
+                    "uuid": message.id,
+                    "sessionId": self.session_id,
+                    "timestamp": message.timestamp,
+                    "provider": "gemini-code",
+                    "type": message.message_type,
+                    "message": {
+                        "role": if message.message_type == "user" { "user" } else { "assistant" },
+                        "content": message.content
+                    },
+                    "cwd": cwd
+                });
+
+                // Add Gemini-specific fields
+                if let Some(ref thoughts) = message.thoughts {
+                    entry["gemini_thoughts"] = serde_json::to_value(thoughts)?;
+                }
+                if let Some(ref tokens) = message.tokens {
+                    entry["gemini_tokens"] = serde_json::to_value(tokens)?;
+                }
+                if let Some(ref model) = message.model {
+                    entry["gemini_model"] = serde_json::Value::String(model.clone());
+                }
+
+                lines.push(serde_json::to_string(&entry)?);
+            }
         }
 
         Ok(lines.join("\n"))

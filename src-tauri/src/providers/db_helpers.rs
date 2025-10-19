@@ -139,6 +139,18 @@ pub fn insert_session_immediately(
                                 &format!("⚠ Failed to attach session to project: {}", e),
                             );
                         } else {
+                            // Update the project_name field to match the linked project
+                            // This ensures the session displays the correct project name instead of fallback
+                            if let Err(e) = crate::database::update_session_project_name(
+                                session_id,
+                                &metadata.project_name,
+                            ) {
+                                let _ = log_warn(
+                                    provider_id,
+                                    &format!("⚠ Failed to update session project_name: {}", e),
+                                );
+                            }
+
                             let _ = log_debug(
                                 provider_id,
                                 &format!(

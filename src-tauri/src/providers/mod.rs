@@ -11,8 +11,9 @@ mod copilot_parser;
 mod copilot_snapshot;
 mod copilot_watcher;
 pub mod db_helpers;
-mod gemini;
-mod gemini_parser;
+pub mod gemini; // Made public for test access to CWD extraction functions
+pub mod gemini_parser; // Made public for test access
+pub mod gemini_registry; // Registry for hash->CWD mappings
 mod gemini_watcher;
 mod opencode;
 mod opencode_parser;
