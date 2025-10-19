@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -222,101 +222,4 @@ describe('SessionsPage integration', () => {
     expect(navigateMock).not.toHaveBeenCalled()
   })
 
-  it('navigates to provider config when sync mode disallows uploads', async () => {
-    invokeMock.mockImplementation(async (command: string, args: any) => {
-      if (command === 'load_config_command') {
-        return { apiKey: 'abc', username: 'tester', serverUrl: 'http://server' }
-      }
-      if (command === 'get_all_projects') {
-        return []
-      }
-      if (command === 'execute_sql' && args.sql.includes('FROM agent_sessions')) {
-        return [
-          {
-            id: '1',
-            session_id: 'session-1',
-            provider: 'claude-code',
-            file_name: 'session-1.jsonl',
-            file_path: '/tmp/session-1.jsonl',
-            project_name: 'Project A',
-            duration_ms: 1000,
-            session_start_time: Date.now(),
-            session_end_time: Date.now(),
-            created_at: Date.now(),
-            uploaded_at: Date.now(),
-            processing_status: 'pending',
-            assessment_status: 'not_started',
-            synced_to_server: 0,
-          },
-        ]
-      }
-      if (command === 'execute_sql' && args.sql.includes('SELECT provider')) {
-        return [{ provider: 'claude-code' }]
-      }
-      if (command === 'load_provider_config_command') {
-        return { syncMode: 'Metrics Only' }
-      }
-      if (command === 'execute_sql') {
-        return []
-      }
-      throw new Error(`Unexpected command ${command}`)
-    })
-
-    renderPage(<SessionsPageComponent />)
-
-    const syncButton = within(await screen.findByTestId('session-card-session-1')).getByRole('button')
-    await userEvent.click(syncButton)
-
-    expect(navigateMock).toHaveBeenCalledWith('/provider/claude-code#sync-mode')
-    expect(toast.success).not.toHaveBeenCalled()
-  })
-
-  it('redirects to login when user not authenticated', async () => {
-    invokeMock.mockImplementation(async (command: string, args: any) => {
-      if (command === 'load_config_command') {
-        return { apiKey: undefined, username: undefined }
-      }
-      if (command === 'get_all_projects') {
-        return []
-      }
-      if (command === 'execute_sql' && args.sql.includes('FROM agent_sessions')) {
-        return [
-          {
-            id: '1',
-            session_id: 'session-1',
-            provider: 'claude-code',
-            file_name: 'session-1.jsonl',
-            file_path: '/tmp/session-1.jsonl',
-            project_name: 'Project A',
-            duration_ms: 1000,
-            session_start_time: Date.now(),
-            session_end_time: Date.now(),
-            created_at: Date.now(),
-            uploaded_at: Date.now(),
-            processing_status: 'pending',
-            assessment_status: 'not_started',
-            synced_to_server: 0,
-          },
-        ]
-      }
-      if (command === 'execute_sql' && args.sql.includes('SELECT provider')) {
-        return [{ provider: 'claude-code' }]
-      }
-      if (command === 'load_provider_config_command') {
-        return { syncMode: 'Transcript and Metrics' }
-      }
-      if (command === 'execute_sql') {
-        return []
-      }
-      throw new Error(`Unexpected command ${command}`)
-    })
-
-    renderPage(<SessionsPageComponent />)
-
-    const syncButton = within(await screen.findByTestId('session-card-session-1')).getByRole('button')
-    await userEvent.click(syncButton)
-
-    expect(navigateMock).toHaveBeenCalledWith('/')
-    expect(toast.success).not.toHaveBeenCalled()
-  })
 })

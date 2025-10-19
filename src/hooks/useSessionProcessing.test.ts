@@ -116,6 +116,9 @@ describe('useSessionProcessing', () => {
       },
     ]
 
+    // Mock session details query to return empty (no git diff will be fetched)
+    mockInvoke.mockResolvedValueOnce([])
+
     mockProcessMetrics.mockResolvedValue(metricsResults)
     mockGetProcessor.mockReturnValue({ processMetrics: mockProcessMetrics })
 
@@ -144,15 +147,20 @@ describe('useSessionProcessing', () => {
       provider: 'claude-code',
     })
 
-    expect(mockInvoke).toHaveBeenCalledTimes(2)
+    expect(mockInvoke).toHaveBeenCalledTimes(3)
 
-    const insertCall = mockInvoke.mock.calls[0]
+    // First call is to fetch session details for git diff
+    const sessionDetailsCall = mockInvoke.mock.calls[0]
+    expect(sessionDetailsCall[0]).toBe('execute_sql')
+    expect(sessionDetailsCall[1].sql).toContain('SELECT cwd, first_commit_hash')
+
+    const insertCall = mockInvoke.mock.calls[1]
     expect(insertCall[0]).toBe('execute_sql')
     expect(insertCall[1]).toMatchObject({
       sql: expect.stringContaining('INSERT OR REPLACE INTO session_metrics'),
     })
     expect(insertCall[1].params).toEqual([
-      'uuid-123',
+      '00000000-0000-0000-0000-000000000123',
       'session-1',
       'claude-code',
       FIXED_TIME.getTime(),
@@ -184,15 +192,31 @@ describe('useSessionProcessing', () => {
       1,
       2,
       'phrase-a,phrase-b',
+      null,
+      null,
+      null,
       'tip1\ntip2',
+      null,
+      'tip1\ntip2',
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
       FIXED_TIME.getTime(),
     ])
 
-    const updateCall = mockInvoke.mock.calls[1]
+    const updateCall = mockInvoke.mock.calls[2]
     expect(updateCall[0]).toBe('execute_sql')
     expect(updateCall[1]).toEqual({
       sql: expect.stringContaining('UPDATE agent_sessions'),
-      params: ['session-1'],
+      params: [FIXED_TIME.getTime(), 'session-1'],
     })
   })
 

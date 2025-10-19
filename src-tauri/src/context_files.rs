@@ -185,6 +185,9 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
 
+        // Create .git directory (required for ignore crate to respect .gitignore)
+        fs::create_dir(temp_path.join(".git")).unwrap();
+
         // Create .gitignore
         fs::write(temp_path.join(".gitignore"), "ignored/\n").unwrap();
 
