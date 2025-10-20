@@ -156,22 +156,32 @@ export default function SessionsPage() {
 
   // Listen for sync/update events from backend and invalidate cache
   useEffect(() => {
-    const unlistenSynced = listen('session-synced', () => {
+    let unlistenSynced: (() => void) | undefined
+    let unlistenFailed: (() => void) | undefined
+    let unlistenUpdated: (() => void) | undefined
+
+    listen('session-synced', () => {
       invalidateSessions()
+    }).then(fn => {
+      unlistenSynced = fn
     })
 
-    const unlistenFailed = listen('session-sync-failed', () => {
+    listen('session-sync-failed', () => {
       invalidateSessions()
+    }).then(fn => {
+      unlistenFailed = fn
     })
 
-    const unlistenUpdated = listen('session-updated', () => {
+    listen('session-updated', () => {
       invalidateSessions()
+    }).then(fn => {
+      unlistenUpdated = fn
     })
 
     return () => {
-      unlistenSynced.then(fn => fn())
-      unlistenFailed.then(fn => fn())
-      unlistenUpdated.then(fn => fn())
+      unlistenSynced?.()
+      unlistenFailed?.()
+      unlistenUpdated?.()
     }
   }, [invalidateSessions])
 

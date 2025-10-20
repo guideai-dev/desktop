@@ -35,13 +35,17 @@ function AppContent() {
 
   useEffect(() => {
     // Listen for navigation events from the menubar window
-    const unlisten = listen('navigate', event => {
+    let unlisten: (() => void) | undefined
+
+    listen('navigate', event => {
       const route = event.payload as string
       navigate(route)
+    }).then(fn => {
+      unlisten = fn
     })
 
     return () => {
-      unlisten.then(fn => fn())
+      unlisten?.()
     }
   }, [navigate])
 

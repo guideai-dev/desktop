@@ -267,28 +267,38 @@ export default function SessionDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['session-git-diff-stats', sessionId] })
     }
 
-    const unlistenSynced = listen('session-synced', event => {
+    let unlistenSynced: (() => void) | undefined
+    let unlistenFailed: (() => void) | undefined
+    let unlistenUpdated: (() => void) | undefined
+
+    listen('session-synced', event => {
       if (event.payload === sessionId) {
         invalidateSessionData()
       }
+    }).then(fn => {
+      unlistenSynced = fn
     })
 
-    const unlistenFailed = listen('session-sync-failed', event => {
+    listen('session-sync-failed', event => {
       if (event.payload === sessionId) {
         invalidateSessionData()
       }
+    }).then(fn => {
+      unlistenFailed = fn
     })
 
-    const unlistenUpdated = listen('session-updated', event => {
+    listen('session-updated', event => {
       if (event.payload === sessionId) {
         invalidateSessionData()
       }
+    }).then(fn => {
+      unlistenUpdated = fn
     })
 
     return () => {
-      unlistenSynced.then(fn => fn())
-      unlistenFailed.then(fn => fn())
-      unlistenUpdated.then(fn => fn())
+      unlistenSynced?.()
+      unlistenFailed?.()
+      unlistenUpdated?.()
     }
   }, [sessionId, queryClient])
 

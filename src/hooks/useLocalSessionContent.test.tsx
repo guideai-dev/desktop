@@ -5,7 +5,7 @@ import type { ReactNode } from 'react'
 import { useLocalSessionContent } from './useLocalSessionContent'
 
 const invoke = vi.fn()
-const findParser = vi.fn()
+const getParser = vi.fn()
 const parseSession = vi.fn()
 const processTimeline = vi.fn()
 
@@ -14,9 +14,8 @@ vi.mock('@tauri-apps/api/core', () => ({
 }))
 
 vi.mock('@guideai-dev/session-processing/ui', () => ({
-  sessionRegistry: {
-    findParser: (...args: unknown[]) => findParser(...args),
-    parseSession: (...args: unknown[]) => parseSession(...args),
+  parserRegistry: {
+    getParser: (...args: unknown[]) => getParser(...args),
   },
   messageProcessorRegistry: {
     getProcessor: () => ({
@@ -39,16 +38,26 @@ const withProvider = (client: QueryClient) =>
 describe('useLocalSessionContent', () => {
   beforeEach(() => {
     invoke.mockReset()
-    findParser.mockReset()
+    getParser.mockReset()
     parseSession.mockReset()
     processTimeline.mockReset()
   })
 
   it('fetches and processes session content', async () => {
     invoke.mockResolvedValue('session-content')
-    findParser.mockReturnValue({})
     const parsedMessages = [{ id: 'msg-1' }]
-    parseSession.mockReturnValue(parsedMessages)
+    const parsedSession = {
+      sessionId: 'session-1',
+      provider: 'claude-code',
+      messages: parsedMessages,
+      startTime: new Date(),
+      endTime: new Date(),
+      duration: 1000,
+    }
+    parseSession.mockReturnValue(parsedSession)
+    getParser.mockReturnValue({
+      parseSession: parseSession,
+    })
     const processedTimeline = { events: [] }
     processTimeline.mockReturnValue(processedTimeline)
 
@@ -68,8 +77,8 @@ describe('useLocalSessionContent', () => {
       filePath: '/tmp/session.jsonl',
       sessionId: 'session-1',
     })
-    expect(findParser).toHaveBeenCalledWith('session-content')
-    expect(parseSession).toHaveBeenCalledWith('session-content', 'claude-code')
+    expect(getParser).toHaveBeenCalledWith('claude-code')
+    expect(parseSession).toHaveBeenCalledWith('session-content')
     expect(processTimeline).toHaveBeenCalledWith(parsedMessages)
 
     expect(result.current.messages).toEqual(parsedMessages)
@@ -82,7 +91,7 @@ describe('useLocalSessionContent', () => {
 
   it('handles missing parser errors', async () => {
     invoke.mockResolvedValue('session-content')
-    findParser.mockReturnValue(null)
+    getParser.mockReturnValue(null)
 
     const client = createQueryClient()
 
@@ -95,7 +104,7 @@ describe('useLocalSessionContent', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false))
 
-    expect(result.current.error).toBe('No suitable parser found for session content')
+    expect(result.current.error).toBe('No parser found for provider: claude-code')
     expect(result.current.messages).toEqual([])
     expect(result.current.timeline).toBeNull()
 

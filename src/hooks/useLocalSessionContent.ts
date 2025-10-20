@@ -2,7 +2,7 @@ import {
   type BaseSessionMessage,
   type ProcessedTimeline,
   messageProcessorRegistry,
-  sessionRegistry,
+  parserRegistry,
 } from '@guideai-dev/session-processing/ui'
 import { useQuery } from '@tanstack/react-query'
 import { invoke } from '@tauri-apps/api/core'
@@ -33,20 +33,26 @@ async function fetchSessionContent(
     sessionId,
   })
 
-  // Parse the session file
-  const parser = sessionRegistry.findParser(content)
+  // Parse the session file using the provider-specific parser
+  const parser = parserRegistry.getParser(provider)
   if (!parser) {
-    throw new Error('No suitable parser found for session content')
+    throw new Error(`No parser found for provider: ${provider}`)
   }
 
-  const parsedMessages = sessionRegistry.parseSession(content, provider)
+  const parsedSession = parser.parseSession(content)
+
+  // Convert ParsedMessage[] to BaseSessionMessage[] by serializing Date timestamps
+  const baseMessages = parsedSession.messages.map(msg => ({
+    ...msg,
+    timestamp: msg.timestamp instanceof Date ? msg.timestamp.toISOString() : msg.timestamp,
+  }))
 
   // Process messages for timeline display
   const processor = messageProcessorRegistry.getProcessor(provider)
-  const processedTimeline = processor.process(parsedMessages)
+  const processedTimeline = processor.process(baseMessages)
 
   return {
-    messages: parsedMessages,
+    messages: baseMessages,
     timeline: processedTimeline,
     fileContent: content,
   }
