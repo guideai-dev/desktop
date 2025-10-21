@@ -5,7 +5,7 @@ export default defineConfig({
 	test: {
 		globals: true,
 		environment: 'jsdom',
-		include: ['tests/**/*.{test,spec}.{ts,tsx}'],
+		include: ['tests/**/*.{test,spec}.{ts,tsx}', 'src/**/__tests__/*.{test,spec}.{ts,tsx}'],
 		exclude: ['node_modules', 'dist', 'src-tauri'],
 		setupFiles: ['./tests/setup.ts'],
 		coverage: {
