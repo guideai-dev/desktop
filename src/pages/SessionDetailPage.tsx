@@ -2,6 +2,8 @@ import {
   MetricsOverview,
   PhaseTimeline,
   SessionDetailHeader,
+  TokenUsageChart,
+  ScrollToTopButton,
   type SessionPhaseAnalysis,
   VirtualizedMessageList,
   isTimelineGroup,
@@ -19,7 +21,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { AiProcessingProgress } from '../components/AiProcessingProgress'
 import { SessionChangesTab } from '../components/SessionChangesTab'
@@ -120,6 +122,38 @@ export default function SessionDetailPage() {
   const toast = useToast()
   const quickRatingMutation = useQuickRating()
   const [hasPendingChanges, setHasPendingChanges] = useState(false)
+
+  // Scroll to message function for TokenUsageChart clickable bars
+  const scrollToMessage = useCallback((messageId: string) => {
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`)
+    if (messageElement) {
+      messageElement.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      })
+      // Add enhanced flash/highlight effect
+      messageElement.classList.add('ring-4', 'ring-primary', 'ring-offset-2', 'bg-primary/10')
+
+      // Flash effect: add and remove quickly for attention
+      setTimeout(() => {
+        messageElement.classList.remove('bg-primary/10')
+        messageElement.classList.add('bg-primary/20')
+      }, 150)
+      setTimeout(() => {
+        messageElement.classList.remove('bg-primary/20')
+        messageElement.classList.add('bg-primary/10')
+      }, 300)
+      setTimeout(() => {
+        messageElement.classList.remove('bg-primary/10')
+        messageElement.classList.add('bg-primary/20')
+      }, 450)
+
+      // Remove all effects after animation
+      setTimeout(() => {
+        messageElement.classList.remove('ring-4', 'ring-primary', 'ring-offset-2', 'bg-primary/20', 'bg-primary/10')
+      }, 2000)
+    }
+  }, [])
 
   // Track session activity from file watchers
   useSessionActivity()
@@ -760,7 +794,17 @@ export default function SessionDetailPage() {
                 <span>Failed to load session content: {contentError}</span>
               </div>
             ) : (
-              <VirtualizedMessageList items={orderedItems} />
+              <>
+                {/* TokenUsageChart uses ALL messages for accurate totals */}
+                <TokenUsageChart
+                  items={timeline?.items || []}
+                  onMessageClick={scrollToMessage}
+                />
+                {/* VirtualizedMessageList uses filtered messages */}
+                <VirtualizedMessageList items={orderedItems} />
+                {/* Floating scroll to top button - appears when scrolled down */}
+                <ScrollToTopButton />
+              </>
             )}
           </>
         )}
