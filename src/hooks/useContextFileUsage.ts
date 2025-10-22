@@ -16,8 +16,9 @@ export interface FileUsageStats {
 /**
  * Hook to track usage of context files within a session transcript.
  *
- * Scans the raw transcript file content for mentions of each context file's
- * relative path. Separates counts into tool calls vs regular messages.
+ * Scans the raw transcript file content for Read tool calls that accessed
+ * each context file. Only counts actual Read tool invocations, not string
+ * mentions.
  *
  * @param fileContent - Raw session transcript (JSONL format)
  * @param contextFiles - List of context files found in the project
@@ -35,61 +36,48 @@ export function useContextFileUsage(
       return usageCounts
     }
 
-    // Parse JSONL content into individual messages
-    const lines = fileContent.split('\n').filter(line => line.trim())
-    const messages: any[] = []
+    // Build a map of context file paths for fast lookup
+    // Include both absolute and relative paths, normalized
+    const contextPathMap = new Map<string, string>() // normalized path -> relativePath
 
-    for (const line of lines) {
-      try {
-        messages.push(JSON.parse(line))
-      } catch (_err) {}
+    for (const contextFile of contextFiles) {
+      const { relativePath, filePath } = contextFile
+
+      // Normalize paths to forward slashes for comparison
+      const normalizedRelative = relativePath.replace(/\\/g, '/')
+      const normalizedAbsolute = filePath.replace(/\\/g, '/')
+
+      contextPathMap.set(normalizedRelative, relativePath)
+      contextPathMap.set(normalizedAbsolute, relativePath)
     }
 
-    // Scan each context file for mentions
-    for (const contextFile of contextFiles) {
-      const { relativePath } = contextFile
-      let toolCallCount = 0
-      let messageCount = 0
+    // Parse JSONL content into individual messages
+    const lines = fileContent.split('\n').filter(line => line.trim())
 
-      // Create variations to search for (handle different path separators)
-      const pathVariations = [
-        relativePath,
-        relativePath.replace(/\\/g, '/'), // Normalize to forward slashes
-        relativePath.replace(/\//g, '\\'), // Normalize to backslashes
-      ]
+    // Scan all messages for Read tool calls
+    for (const line of lines) {
+      try {
+        const message = JSON.parse(line)
 
-      // Track seen messages to avoid duplicate counting within same message
-      const seenMessageIds = new Set<string>()
+        // Extract Read tool calls from this message
+        const readToolCalls = extractReadToolCalls(message)
 
-      // Scan all messages
-      for (const message of messages) {
-        const messageId = message.uuid || message.timestamp || JSON.stringify(message)
+        // Check if any Read tool call accessed a context file
+        for (const filePath of readToolCalls) {
+          const normalizedPath = filePath.replace(/\\/g, '/')
+          const matchedRelativePath = contextPathMap.get(normalizedPath)
 
-        // Skip if we've already counted this message for this file
-        if (seenMessageIds.has(messageId)) {
-          continue
-        }
-
-        // Convert message to string for searching
-        const messageStr = JSON.stringify(message).toLowerCase()
-        const found = pathVariations.some(variation => messageStr.includes(variation.toLowerCase()))
-
-        if (found) {
-          // Determine if this is a tool call or a regular message
-          const isToolCall = isToolCallMessage(message)
-
-          if (isToolCall) {
-            toolCallCount++
-          } else {
-            messageCount++
+          if (matchedRelativePath) {
+            // Increment tool call count for this context file
+            const existing = usageCounts.get(matchedRelativePath) || { toolCalls: 0, messages: 0 }
+            usageCounts.set(matchedRelativePath, {
+              toolCalls: existing.toolCalls + 1,
+              messages: existing.messages,
+            })
           }
-
-          seenMessageIds.add(messageId)
         }
-      }
-
-      if (toolCallCount > 0 || messageCount > 0) {
-        usageCounts.set(relativePath, { toolCalls: toolCallCount, messages: messageCount })
+      } catch (_err) {
+        // Skip malformed lines
       }
     }
 
@@ -98,26 +86,27 @@ export function useContextFileUsage(
 }
 
 /**
- * Determine if a message is a tool call (tool_use or tool_result)
+ * Extract file paths from Read tool calls in a message.
+ * Returns an array of file paths that were read.
  */
-function isToolCallMessage(message: any): boolean {
-  // Check message type field
-  if (message.type === 'tool_use' || message.type === 'tool_result') {
-    return true
-  }
+function extractReadToolCalls(message: any): string[] {
+  const filePaths: string[] = []
 
-  // Check for tool content in message.message.content array
-  if (message.message?.content) {
-    const content = message.message.content
-    if (Array.isArray(content)) {
-      return content.some((item: any) => item.type === 'tool_use' || item.type === 'tool_result')
+  // Check if this is a tool use message with Read tool
+  if (message.message?.content && Array.isArray(message.message.content)) {
+    for (const block of message.message.content) {
+      if (block.type === 'tool_use' && block.name === 'Read' && block.input?.file_path) {
+        filePaths.push(block.input.file_path)
+      }
     }
   }
 
-  // Check for tool-related fields in the message
-  if (message.tool_use_id || message.tool_name || message.input || message.callId) {
-    return true
+  // Check for user type messages with toolUseResult (Read tool results)
+  if (message.type === 'user' && message.toolUseResult) {
+    // Read tool results have a 'content' field with file contents
+    // We need to check the corresponding tool use message for the file path
+    // For now, we'll skip tool results since the tool use is more reliable
   }
 
-  return false
+  return filePaths
 }

@@ -2,6 +2,7 @@ import {
   MetricsOverview,
   PhaseTimeline,
   SessionDetailHeader,
+  SessionTodosTab,
   TokenUsageChart,
   ScrollToTopButton,
   type SessionPhaseAnalysis,
@@ -14,6 +15,7 @@ import {
   ArrowUpIcon,
   ChartBarIcon,
   ChatBubbleLeftRightIcon,
+  CheckCircleIcon,
   ClockIcon,
   Cog6ToothIcon,
   DocumentTextIcon,
@@ -161,7 +163,7 @@ export default function SessionDetailPage() {
 
   // Tab state - default to transcript
   const [activeTab, setActiveTab] = useState<
-    'phase-timeline' | 'transcript' | 'metrics' | 'changes' | 'context'
+    'phase-timeline' | 'transcript' | 'metrics' | 'changes' | 'context' | 'todos'
   >('transcript')
 
   // Fetch session metadata with TanStack Query
@@ -448,6 +450,35 @@ export default function SessionDetailPage() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
 
+  // Check if session transcript contains any TodoWrite events
+  // This checks the raw transcript directly, without waiting for metrics processing
+  const hasTodoWrites = (fileContent: string | null): boolean => {
+    if (!fileContent) return false
+
+    try {
+      const lines = fileContent.split('\n').filter(l => l.trim())
+      for (const line of lines) {
+        try {
+          const entry = JSON.parse(line)
+          // Look for assistant messages with TodoWrite tool use
+          if (entry.type === 'assistant' && entry.message?.content) {
+            for (const block of entry.message.content) {
+              if (block.type === 'tool_use' && block.name === 'TodoWrite') {
+                return true
+              }
+            }
+          }
+        } catch {
+          // Skip invalid lines
+        }
+      }
+    } catch {
+      // Skip parsing errors
+    }
+
+    return false
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -667,6 +698,20 @@ export default function SessionDetailPage() {
                 )}
               </button>
             )}
+            {(metrics?.quality?.usedTodoTracking || hasTodoWrites(fileContent)) && (
+              <button
+                className={`tab tab-lg gap-2 ${
+                  activeTab === 'todos'
+                    ? 'tab-active bg-base-100 text-primary font-semibold border-b-2 border-primary'
+                    : 'hover:bg-base-300'
+                }`}
+                onClick={() => setActiveTab('todos')}
+                title="Todos"
+              >
+                <CheckCircleIcon className="w-5 h-5" />
+                <span className="hidden md:inline">Todos</span>
+              </button>
+            )}
             {session.cwd && session.first_commit_hash && (
               <button
                 className={`tab tab-lg gap-2 ${
@@ -851,6 +896,14 @@ export default function SessionDetailPage() {
             session={{
               sessionId: session.session_id,
               cwd: session.cwd,
+            }}
+            fileContent={fileContent}
+          />
+        )}
+        {activeTab === 'todos' && (
+          <SessionTodosTab
+            session={{
+              sessionId: session.session_id,
             }}
             fileContent={fileContent}
           />

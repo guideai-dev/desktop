@@ -153,8 +153,8 @@ export function SessionContextTab({ session, fileContent }: SessionContextTabPro
             These files provide instructions and context for AI coding agents. Files in .gitignore
             are automatically excluded.
             <br />
-            We attempt to show when a file has been read in a session, this is currently not fully
-            reliable (but we are working on it!).
+            Files marked with a badge show how many times they were accessed via Read tool calls in
+            this session.
           </div>
         </div>
       </div>
@@ -304,12 +304,7 @@ function ContextFileCard({ file, expanded, onToggle, usageStats }: ContextFileCa
           <div className="flex items-center gap-2 text-sm text-base-content/60">
             {usageStats && usageStats.toolCalls > 0 && (
               <span className="badge badge-secondary badge-sm font-semibold">
-                {usageStats.toolCalls} Tool Call{usageStats.toolCalls !== 1 ? 's' : ''}
-              </span>
-            )}
-            {usageStats && usageStats.messages > 0 && (
-              <span className="badge badge-secondary badge-sm font-semibold">
-                {usageStats.messages} Message{usageStats.messages !== 1 ? 's' : ''}
+                Read {usageStats.toolCalls}x
               </span>
             )}
             <span>{formatSize(file.size)}</span>
