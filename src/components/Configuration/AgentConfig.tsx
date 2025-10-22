@@ -1,9 +1,12 @@
+import { invoke } from '@tauri-apps/api/core'
 import { useQueryClient } from '@tanstack/react-query'
 import { open } from '@tauri-apps/plugin-dialog'
 import { formatDistanceToNow } from 'date-fns'
 import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
+import { useRescanProgress } from '../../hooks/useRescanProgress'
+import { useToast } from '../../hooks/useToast'
 import {
   useClaudeWatcherStatus,
   useStartClaudeWatcher,
@@ -34,6 +37,7 @@ import { useSetupInstructions } from '../../hooks/useSetupInstructions'
 import type { CodingAgent, ProviderConfig } from '../../types/providers'
 import ConfirmDialog from '../ConfirmDialog'
 import ProviderIcon from '../icons/ProviderIcon'
+import RescanProgress from '../RescanProgress'
 import SetupInstructions from './SetupInstructions'
 
 interface AgentConfigProps {
@@ -59,6 +63,12 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
   const [pendingSyncMode, setPendingSyncMode] = useState<
     'Transcript and Metrics' | 'Metrics Only' | null
   >(null)
+
+  // Rescan and clear state
+  const [confirmClear, setConfirmClear] = useState(false)
+  const [isScanning, setIsScanning] = useState(false)
+  const toast = useToast()
+  const { progress: rescanProgress } = useRescanProgress(agent.id)
 
   // Watcher hooks - conditional based on provider
   const { data: claudeWatcherStatus } = useClaudeWatcherStatus()
@@ -180,6 +190,15 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
       }, 3000)
     }
   }, [location.hash, location.pathname])
+
+  // Reset scanning state when rescan completes
+  useEffect(() => {
+    if (rescanProgress?.phase === 'complete') {
+      setIsScanning(false)
+      // Refresh sessions list
+      queryClient.invalidateQueries({ queryKey: ['sessions'] })
+    }
+  }, [rescanProgress, queryClient])
 
   const handleEnabledChange = (enabled: boolean) => {
     const newConfig = { ...localConfig, enabled }
@@ -306,6 +325,41 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
   const handleStopWatcher = () => {
     if (!stopWatcher) return
     stopWatcher()
+  }
+
+  // Rescan functions
+  const handleRescan = async () => {
+    try {
+      setIsScanning(true)
+      await invoke('scan_historical_sessions', { providerId: agent.id })
+    } catch (err) {
+      console.error('Failed to start rescan:', err)
+      toast.error(`Failed to start rescan: ${(err as Error).message}`)
+      setIsScanning(false)
+    }
+  }
+
+  const handleClearAndRescan = async () => {
+    setConfirmClear(false)
+    try {
+      setIsScanning(true)
+      await invoke<string>('clear_provider_sessions', { providerId: agent.id })
+
+      // Wait a moment then start rescan
+      setTimeout(async () => {
+        try {
+          await invoke('scan_historical_sessions', { providerId: agent.id })
+        } catch (err) {
+          console.error('Failed to start rescan:', err)
+          toast.error(`Failed to start rescan: ${(err as Error).message}`)
+          setIsScanning(false)
+        }
+      }, 500)
+    } catch (err) {
+      console.error('Failed to clear sessions:', err)
+      toast.error(`Failed to clear sessions: ${(err as Error).message}`)
+      setIsScanning(false)
+    }
   }
 
   const handleBrowseFolder = async () => {
@@ -686,6 +740,80 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
                 Last scanned: {formatDistanceToNow(new Date(localConfig.lastScanned))} ago
               </div>
             )}
+
+            {/* Data Management */}
+            <div
+              className={`form-control pt-6 ${!localConfig.enabled || directoryExists === false ? 'opacity-50' : ''}`}
+            >
+              <label className="label pb-2">
+                <span className="label-text text-base font-semibold">Data Management</span>
+              </label>
+
+              {/* Rescan Progress */}
+              {rescanProgress && (
+                <div className="mb-4">
+                  <RescanProgress
+                    phase={rescanProgress.phase}
+                    current={rescanProgress.current}
+                    total={rescanProgress.total}
+                    message={rescanProgress.message}
+                  />
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex gap-2 items-start">
+                <div className="flex-1">
+                  <button
+                    onClick={handleRescan}
+                    className="btn btn-primary btn-sm w-full"
+                    disabled={isScanning || !localConfig.enabled || directoryExists === false}
+                  >
+                    {isScanning ? (
+                      <>
+                        <span className="loading loading-spinner loading-xs" />
+                        Scanning...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                          />
+                        </svg>
+                        Rescan
+                      </>
+                    )}
+                  </button>
+                  <p className="text-xs text-base-content/60 mt-1">
+                    Scan directory for new sessions
+                  </p>
+                </div>
+                <div className="flex-1">
+                  <button
+                    onClick={() => setConfirmClear(true)}
+                    className="btn btn-error btn-outline btn-sm w-full"
+                    disabled={isScanning || !localConfig.enabled}
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                      />
+                    </svg>
+                    Clear & Rescan
+                  </button>
+                  <p className="text-xs text-base-content/60 mt-1">
+                    Delete all sessions, then rescan
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </>
 
@@ -715,6 +843,27 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
         onConfirm={handleConfirmSyncMode}
         onCancel={handleCancelSyncMode}
         variant="warning"
+      />
+
+      {/* Clear & Rescan Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={confirmClear}
+        title={`Clear All ${agent.name} Sessions?`}
+        message={`⚠️ This will permanently delete ALL sessions and metrics for ${agent.name} from your local database.
+
+This action cannot be undone and will delete:
+• All session data and transcripts
+• All calculated metrics
+• All AI-generated summaries and assessments
+
+After clearing, a rescan will automatically start to find sessions in the provider directory.
+
+Are you sure you want to continue?`}
+        confirmText="Clear & Rescan"
+        cancelText="Cancel"
+        variant="error"
+        onConfirm={handleClearAndRescan}
+        onCancel={() => setConfirmClear(false)}
       />
     </div>
   )

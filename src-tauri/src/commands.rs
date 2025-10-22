@@ -795,8 +795,12 @@ where
 }
 
 #[tauri::command]
-pub async fn scan_historical_sessions(provider_id: String) -> Result<Vec<SessionInfo>, String> {
+pub async fn scan_historical_sessions(
+    app_handle: tauri::AppHandle,
+    provider_id: String,
+) -> Result<Vec<SessionInfo>, String> {
     use crate::logging::{log_debug, log_info, log_warn};
+    use tauri::Emitter;
 
     // Log start of scan
     if let Err(e) = log_info(
@@ -805,6 +809,15 @@ pub async fn scan_historical_sessions(provider_id: String) -> Result<Vec<Session
     ) {
         eprintln!("Logging error: {}", e);
     }
+
+    // Emit initial progress event
+    let _ = app_handle.emit("rescan-progress", serde_json::json!({
+        "provider": provider_id,
+        "phase": "starting",
+        "current": 0,
+        "total": 0,
+        "message": "Starting scan..."
+    }));
 
     // Update progress
     update_sync_progress_for_provider(&provider_id, |progress| {
@@ -833,6 +846,15 @@ pub async fn scan_historical_sessions(provider_id: String) -> Result<Vec<Session
     ) {
         eprintln!("Logging error: {}", e);
     }
+
+    // Emit scanning phase
+    let _ = app_handle.emit("rescan-progress", serde_json::json!({
+        "provider": provider_id,
+        "phase": "scanning",
+        "current": 0,
+        "total": 0,
+        "message": format!("Scanning directory: {}", config.home_directory)
+    }));
 
     // Scan for sessions
     let all_sessions = scan_all_sessions(&provider_id, &config.home_directory).map_err(|e| {
@@ -929,10 +951,29 @@ pub async fn scan_historical_sessions(provider_id: String) -> Result<Vec<Session
         eprintln!("Logging error: {}", e);
     }
 
+    // Emit found sessions count
+    let _ = app_handle.emit("rescan-progress", serde_json::json!({
+        "provider": provider_id,
+        "phase": "processing",
+        "current": 0,
+        "total": sessions.len(),
+        "message": format!("Found {} sessions, inserting into database...", sessions.len())
+    }));
+
     // Insert all sessions into the database (just like file watcher does)
     // The upload queue poller will handle uploading them
     let mut inserted_count = 0;
-    for session in &sessions {
+    for (index, session) in sessions.iter().enumerate() {
+        // Emit progress every 10 sessions or on last session
+        if index % 10 == 0 || index == sessions.len() - 1 {
+            let _ = app_handle.emit("rescan-progress", serde_json::json!({
+                "provider": provider_id,
+                "phase": "processing",
+                "current": index + 1,
+                "total": sessions.len(),
+                "message": format!("Processing session {} of {}...", index + 1, sessions.len())
+            }));
+        }
         match crate::providers::db_helpers::insert_session_immediately(
             &provider_id,
             &session.project_name,
@@ -961,6 +1002,15 @@ pub async fn scan_historical_sessions(provider_id: String) -> Result<Vec<Session
     ) {
         eprintln!("Logging error: {}", e);
     }
+
+    // Emit completion event
+    let _ = app_handle.emit("rescan-progress", serde_json::json!({
+        "provider": provider_id,
+        "phase": "complete",
+        "current": sessions.len(),
+        "total": sessions.len(),
+        "message": format!("Scan complete! Found and inserted {} sessions.", inserted_count)
+    }));
 
     // Update progress
     update_sync_progress_for_provider(&provider_id, |progress| {
@@ -1208,6 +1258,63 @@ pub async fn clear_all_sessions() -> Result<String, String> {
     );
 
     let _ = log_info("system", &message);
+    println!("{}", message);
+
+    Ok(message)
+}
+
+#[tauri::command]
+pub async fn clear_provider_sessions(provider_id: String) -> Result<String, String> {
+    use crate::logging::log_info;
+
+    // Get counts before deleting
+    let metrics_count = crate::database::execute_sql_query(
+        "SELECT COUNT(*) as count FROM session_metrics sm
+         JOIN agent_sessions s ON sm.session_id = s.session_id
+         WHERE s.provider = ?",
+        vec![serde_json::Value::String(provider_id.clone())],
+    )
+    .map_err(|e| e.to_string())?;
+
+    let sessions_count = crate::database::execute_sql_query(
+        "SELECT COUNT(*) as count FROM agent_sessions WHERE provider = ?",
+        vec![serde_json::Value::String(provider_id.clone())],
+    )
+    .map_err(|e| e.to_string())?;
+
+    let metrics_num = metrics_count
+        .first()
+        .and_then(|r| r.get("count"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+
+    let sessions_num = sessions_count
+        .first()
+        .and_then(|r| r.get("count"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+
+    // Delete metrics for sessions from this provider
+    crate::database::execute_sql_query(
+        "DELETE FROM session_metrics WHERE session_id IN
+         (SELECT session_id FROM agent_sessions WHERE provider = ?)",
+        vec![serde_json::Value::String(provider_id.clone())],
+    )
+    .map_err(|e| e.to_string())?;
+
+    // Delete sessions from this provider
+    crate::database::execute_sql_query(
+        "DELETE FROM agent_sessions WHERE provider = ?",
+        vec![serde_json::Value::String(provider_id.clone())],
+    )
+    .map_err(|e| e.to_string())?;
+
+    let message = format!(
+        "Cleared {} session metrics and {} sessions for provider '{}'",
+        metrics_num, sessions_num, provider_id
+    );
+
+    let _ = log_info(&provider_id, &message);
     println!("{}", message);
 
     Ok(message)

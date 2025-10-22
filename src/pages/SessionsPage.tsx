@@ -43,8 +43,6 @@ export default function SessionsPage() {
     const saved = localStorage.getItem(ACTIVE_FILTER_KEY)
     return saved === 'true'
   })
-  const [clearing, setClearing] = useState(false)
-  const [rescanning, setRescanning] = useState(false)
   const [processingSessionId, setProcessingSessionId] = useState<string | null>(null)
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([])
@@ -56,7 +54,6 @@ export default function SessionsPage() {
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; count: number } | null>(
     null
   )
-  const [confirmClearDialog, setConfirmClearDialog] = useState(false)
   const [displayCount, setDisplayCount] = useState(SESSIONS_PER_PAGE)
   const [processingMode, setProcessingMode] = useState<'core' | 'full'>('full')
   const [modeSelectionDialog, setModeSelectionDialog] = useState<{
@@ -75,7 +72,6 @@ export default function SessionsPage() {
   useSessionActivity()
   const isSessionActive = useSessionActivityStore(state => state.isSessionActive)
   const clearAllActiveSessions = useSessionActivityStore(state => state.clearAllActiveSessions)
-  const setTrackingEnabled = useSessionActivityStore(state => state.setTrackingEnabled)
 
   const { sessions, loading, error, refresh } = useLocalSessions({
     provider: providerFilter === 'all' ? undefined : providerFilter,
@@ -530,164 +526,6 @@ export default function SessionsPage() {
     }
   }
 
-  const handleRescan = async () => {
-    // Disable activity tracking and clear existing active sessions
-    setTrackingEnabled(false)
-    clearAllActiveSessions()
-
-    setRescanning(true)
-    try {
-      // Rescan based on provider filter selection
-      const providers =
-        providerFilter === 'all'
-          ? ['claude-code', 'github-copilot', 'opencode', 'codex', 'gemini-code']
-          : [providerFilter]
-      let totalFound = 0
-
-      for (const provider of providers) {
-        try {
-          const sessions = await invoke<any[]>('scan_historical_sessions', {
-            providerId: provider,
-          })
-          totalFound += sessions.length
-        } catch (err) {
-          // Provider might not be enabled, that's ok
-          console.error(`Error scanning ${provider}:`, err)
-        }
-      }
-
-      // Refresh to get updated session list
-      await refresh()
-
-      // Now process core metrics for all sessions
-      toast.info(`Found ${totalFound} sessions. Calculating core metrics...`)
-
-      let processedCount = 0
-      let errorCount = 0
-
-      for (const session of sessions) {
-        try {
-          await handleProcessSession(
-            session.sessionId as string,
-            session.provider,
-            session.filePath as string,
-            true, // silent
-            'core' // core metrics only
-          )
-          processedCount++
-        } catch (err) {
-          console.error(`Error processing session ${session.sessionId}:`, err)
-          errorCount++
-        }
-      }
-
-      // Final refresh after processing
-      await refresh()
-      setRescanning(false)
-
-      // Re-enable activity tracking after a 10 second delay
-      setTimeout(() => {
-        setTrackingEnabled(true)
-      }, 10000)
-
-      if (errorCount > 0) {
-        toast.warning(
-          `Rescan complete!\n✓ ${processedCount} sessions processed\n✗ ${errorCount} errors`
-        )
-      } else {
-        toast.success(
-          `Rescan complete! Found and processed ${processedCount} sessions with core metrics.`
-        )
-      }
-    } catch (err) {
-      console.error('Error during rescan:', err)
-      toast.error(`Failed to rescan: ${String(err)}`)
-      setRescanning(false)
-      setTrackingEnabled(true) // Re-enable on error
-    }
-  }
-
-  const handleClearAndReload = async () => {
-    // Disable activity tracking and clear existing active sessions
-    setTrackingEnabled(false)
-    clearAllActiveSessions()
-
-    setClearing(true)
-    try {
-      const result = await invoke<string>('clear_all_sessions')
-
-      // Rescan based on provider filter selection
-      const providers =
-        providerFilter === 'all'
-          ? ['claude-code', 'github-copilot', 'opencode', 'codex', 'gemini-code']
-          : [providerFilter]
-      let totalFound = 0
-
-      for (const provider of providers) {
-        try {
-          const sessions = await invoke<any[]>('scan_historical_sessions', {
-            providerId: provider,
-          })
-          totalFound += sessions.length
-        } catch (err) {
-          // Provider might not be enabled, that's ok
-          console.error(`Error scanning ${provider}:`, err)
-        }
-      }
-
-      // Refresh to get updated session list
-      await refresh()
-
-      // Now process core metrics for all sessions
-      toast.info(`${result}\n\nFound ${totalFound} sessions. Calculating core metrics...`, 5000)
-
-      let processedCount = 0
-      let errorCount = 0
-
-      for (const session of sessions) {
-        try {
-          await handleProcessSession(
-            session.sessionId as string,
-            session.provider,
-            session.filePath as string,
-            true, // silent
-            'core' // core metrics only
-          )
-          processedCount++
-        } catch (err) {
-          console.error(`Error processing session ${session.sessionId}:`, err)
-          errorCount++
-        }
-      }
-
-      // Final refresh after processing
-      await refresh()
-      setClearing(false)
-
-      // Re-enable activity tracking after a 10 second delay
-      setTimeout(() => {
-        setTrackingEnabled(true)
-      }, 10000)
-
-      if (errorCount > 0) {
-        toast.warning(
-          `Clear and rescan complete!\n✓ ${processedCount} sessions processed\n✗ ${errorCount} errors`,
-          8000
-        )
-      } else {
-        toast.success(
-          `Clear and rescan complete! Found and processed ${processedCount} sessions with core metrics.`,
-          8000
-        )
-      }
-    } catch (err) {
-      console.error('Error during clear and rescan:', err)
-      toast.error(`Failed to clear and rescan: ${String(err)}`)
-      setClearing(false)
-      setTrackingEnabled(true) // Re-enable on error
-    }
-  }
-
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -722,73 +560,23 @@ export default function SessionsPage() {
             {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'} found
           </p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => {
-              clearAllActiveSessions()
-              refresh()
-            }}
-            className="btn btn-sm btn-ghost"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-            Refresh
-          </button>
-          <button
-            onClick={handleRescan}
-            className="btn btn-sm btn-primary btn-outline"
-            disabled={rescanning}
-          >
-            {rescanning ? (
-              <>
-                <span className="loading loading-spinner loading-xs" />
-                Rescanning...
-              </>
-            ) : (
-              <>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
-                Rescan
-              </>
-            )}
-          </button>
-          <button
-            onClick={() => setConfirmClearDialog(true)}
-            className="btn btn-sm btn-error btn-outline"
-            disabled={clearing}
-          >
-            {clearing ? (
-              <>
-                <span className="loading loading-spinner loading-xs" />
-                Clearing...
-              </>
-            ) : (
-              <>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                  />
-                </svg>
-                Clear & Rescan
-              </>
-            )}
-          </button>
-        </div>
+        <button
+          onClick={() => {
+            clearAllActiveSessions()
+            refresh()
+          }}
+          className="btn btn-sm btn-ghost"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            />
+          </svg>
+          Refresh
+        </button>
       </div>
 
       {/* Filters - Always visible */}
@@ -1135,25 +923,6 @@ export default function SessionsPage() {
           </div>
         </div>
       )}
-
-      {/* Clear and Rescan Confirmation Dialog */}
-      <ConfirmDialog
-        isOpen={confirmClearDialog}
-        title="Clear and Rescan All Sessions?"
-        message={`⚠️ This will delete ALL sessions and metrics from the local database, including AI-generated summaries and quality assessments.
-
-This action cannot be undone and may require re-processing sessions with AI (which may incur costs).
-
-After clearing, all sessions will be rescanned from source files.`}
-        confirmText="Clear & Rescan"
-        cancelText="Cancel"
-        variant="error"
-        onConfirm={() => {
-          setConfirmClearDialog(false)
-          handleClearAndReload()
-        }}
-        onCancel={() => setConfirmClearDialog(false)}
-      />
     </div>
   )
 }

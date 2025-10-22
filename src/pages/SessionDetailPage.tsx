@@ -8,6 +8,7 @@ import {
   type SessionPhaseAnalysis,
   VirtualizedMessageList,
   isTimelineGroup,
+  extractTodosAuto,
 } from '@guideai-dev/session-processing/ui'
 import type { SessionRating } from '@guideai-dev/session-processing/ui'
 import {
@@ -23,7 +24,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { AiProcessingProgress } from '../components/AiProcessingProgress'
 import { SessionChangesTab } from '../components/SessionChangesTab'
@@ -450,34 +451,14 @@ export default function SessionDetailPage() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
 
-  // Check if session transcript contains any TodoWrite events
+  // Check if session transcript contains any todo tracking events
   // This checks the raw transcript directly, without waiting for metrics processing
-  const hasTodoWrites = (fileContent: string | null): boolean => {
+  // Supports both Claude Code (TodoWrite) and Codex (update_plan)
+  const hasTodos = useMemo(() => {
     if (!fileContent) return false
-
-    try {
-      const lines = fileContent.split('\n').filter(l => l.trim())
-      for (const line of lines) {
-        try {
-          const entry = JSON.parse(line)
-          // Look for assistant messages with TodoWrite tool use
-          if (entry.type === 'assistant' && entry.message?.content) {
-            for (const block of entry.message.content) {
-              if (block.type === 'tool_use' && block.name === 'TodoWrite') {
-                return true
-              }
-            }
-          }
-        } catch {
-          // Skip invalid lines
-        }
-      }
-    } catch {
-      // Skip parsing errors
-    }
-
-    return false
-  }
+    const todos = extractTodosAuto(fileContent)
+    return todos.length > 0
+  }, [fileContent])
 
   if (loading) {
     return (
@@ -698,7 +679,7 @@ export default function SessionDetailPage() {
                 )}
               </button>
             )}
-            {(metrics?.quality?.usedTodoTracking || hasTodoWrites(fileContent)) && (
+            {(metrics?.quality?.usedTodoTracking || hasTodos) && (
               <button
                 className={`tab tab-lg gap-2 ${
                   activeTab === 'todos'

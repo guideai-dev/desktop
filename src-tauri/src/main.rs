@@ -263,6 +263,7 @@ fn main() {
             commands::execute_sql,
             commands::get_session_content,
             commands::clear_all_sessions,
+            commands::clear_provider_sessions,
             commands::get_all_projects,
             commands::get_project_by_id,
             commands::open_folder_in_os,
