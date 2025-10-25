@@ -77,8 +77,12 @@ pub fn insert_session_immediately(
                     end.format("%H:%M:%S"),
                     dur
                 ),
-                (Some(start), None, None) => format!(" | Start: {}, End: (none)", start.format("%H:%M:%S")),
-                (None, Some(end), None) => format!(" | Start: (none), End: {}", end.format("%H:%M:%S")),
+                (Some(start), None, None) => {
+                    format!(" | Start: {}, End: (none)", start.format("%H:%M:%S"))
+                }
+                (None, Some(end), None) => {
+                    format!(" | Start: (none), End: {}", end.format("%H:%M:%S"))
+                }
                 _ => " | No timing data extracted".to_string(),
             };
 
@@ -212,10 +216,7 @@ fn extract_session_timing(_provider_id: &str, file_path: &PathBuf) -> TimingResu
         .collect();
 
     if lines.is_empty() {
-        let _ = log_warn(
-            "database",
-            "⚠ No lines found in file for timing extraction",
-        );
+        let _ = log_warn("database", "⚠ No lines found in file for timing extraction");
         return Ok((None, None, None));
     }
 
@@ -228,7 +229,9 @@ fn extract_session_timing(_provider_id: &str, file_path: &PathBuf) -> TimingResu
                     .get("timestamp")
                     .and_then(|ts| ts.as_str())
                     .and_then(|ts_str| {
-                        DateTime::parse_from_rfc3339(ts_str).ok().map(|dt| dt.with_timezone(&Utc))
+                        DateTime::parse_from_rfc3339(ts_str)
+                            .ok()
+                            .map(|dt| dt.with_timezone(&Utc))
                     })
             })
     });
@@ -242,7 +245,9 @@ fn extract_session_timing(_provider_id: &str, file_path: &PathBuf) -> TimingResu
                     .get("timestamp")
                     .and_then(|ts| ts.as_str())
                     .and_then(|ts_str| {
-                        DateTime::parse_from_rfc3339(ts_str).ok().map(|dt| dt.with_timezone(&Utc))
+                        DateTime::parse_from_rfc3339(ts_str)
+                            .ok()
+                            .map(|dt| dt.with_timezone(&Utc))
                     })
             })
     });
@@ -253,10 +258,7 @@ fn extract_session_timing(_provider_id: &str, file_path: &PathBuf) -> TimingResu
         (Some(_), None) => None, // Session still active
         (None, Some(_)) => {
             // Unusual: has end but no start
-            let _ = log_warn(
-                "database",
-                "⚠️  Session has end time but no start time",
-            );
+            let _ = log_warn("database", "⚠️  Session has end time but no start time");
             None
         }
         (None, None) => None, // No timestamps found

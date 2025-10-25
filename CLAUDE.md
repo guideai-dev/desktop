@@ -393,14 +393,120 @@ To build for Linux from other platforms:
 2. May need cross-compilation tools
 3. Run: `pnpm tauri:build:linux`
 
-### Other Commands
+### Quality Checks
 
 ```bash
-# Type checking
+# Type checking (TypeScript + Rust)
 pnpm typecheck
+
+# Linting (TypeScript + Rust)
+pnpm lint
+
+# Testing (TypeScript + Rust)
+pnpm test
 
 # Clean artifacts
 pnpm clean
+```
+
+## Development Workflow
+
+**IMPORTANT: Always run quality checks locally before committing changes.**
+
+### Pre-Commit Checklist
+
+Run these commands in the **desktop app directory** (`apps/desktop/`) before committing:
+
+```bash
+# 1. Type checking (REQUIRED - zero errors)
+# Checks both TypeScript and Rust code
+pnpm typecheck
+
+# 2. Linting (REQUIRED - zero errors)
+# Lints both TypeScript and Rust code
+pnpm lint
+
+# 3. Building (REQUIRED - must succeed)
+pnpm build
+
+# 4. Testing (REQUIRED when tests exist)
+# Runs both TypeScript (Vitest) and Rust (Cargo) tests
+pnpm test
+```
+
+### Quick Quality Check
+
+Run all checks in sequence:
+
+```bash
+# Full quality check (TypeScript + Rust)
+pnpm typecheck && pnpm lint && pnpm build && pnpm test
+```
+
+**If any check fails, your code MUST NOT be committed. Fix all errors before proceeding.**
+
+### TypeScript-Specific Checks
+
+```bash
+# Type check only TypeScript
+pnpm typecheck:ts
+
+# Lint only TypeScript
+pnpm lint:ts
+
+# Test only TypeScript (frontend React code)
+pnpm test:ts
+
+# Watch mode for TypeScript tests
+pnpm test:watch
+```
+
+### Rust-Specific Checks
+
+```bash
+# Type check only Rust (cargo check + clippy)
+pnpm typecheck:rust
+
+# Lint only Rust (clippy)
+pnpm lint:rust
+
+# Test only Rust (backend Tauri code)
+pnpm test:rust
+
+# Format Rust code
+pnpm format:rust
+```
+
+### Testing Guidelines
+
+- **Test new features**: Add tests for all new functionality
+  - **TypeScript**: React component tests with Testing Library
+  - **Rust**: Unit tests and integration tests with `#[cfg(test)]`
+- **Keep it pragmatic**: Focus on core functionality and edge cases
+- **Use existing patterns**:
+  - **TypeScript**: Leverage existing test setup in `vitest.config.ts`
+  - **Rust**: Follow existing test patterns in `src-tauri/src/*/tests.rs`
+- **Run locally first**: Always run tests before pushing
+
+### Code Quality Standards
+
+- **Zero tolerance**: No lint errors, type errors, or test failures allowed in commits
+- **Type safety**:
+  - **TypeScript**: Proper types throughout (no `any` without justification)
+  - **Rust**: Proper error handling with `Result<T, E>`, avoid `unwrap()` in production code
+- **Test coverage**: Core functionality must be tested
+- **Consistent style**:
+  - **TypeScript**: Biome enforces consistent formatting
+  - **Rust**: `cargo fmt` enforces Rust conventions
+
+### From Workspace Root
+
+To check the desktop app from the workspace root:
+
+```bash
+pnpm --filter @guideai-dev/desktop typecheck
+pnpm --filter @guideai-dev/desktop lint
+pnpm --filter @guideai-dev/desktop test
 ```
 
 ## Features

@@ -115,6 +115,7 @@ export default function SessionsPage() {
   }, [showActiveOnly])
 
   // Reset display count when filters change
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally resetting on filter changes
   useEffect(() => {
     setDisplayCount(SESSIONS_PER_PAGE)
   }, [providerFilter, dateFilter, projectFilter, showActiveOnly])

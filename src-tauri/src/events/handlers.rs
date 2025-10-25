@@ -13,7 +13,10 @@ pub struct DatabaseEventHandler {
 
 impl DatabaseEventHandler {
     pub fn new(event_bus: EventBus, shutdown: ShutdownCoordinator) -> Self {
-        Self { event_bus, shutdown }
+        Self {
+            event_bus,
+            shutdown,
+        }
     }
 
     pub fn start(self) {
@@ -112,7 +115,11 @@ pub struct FrontendEventHandler {
 }
 
 impl FrontendEventHandler {
-    pub fn new(event_bus: EventBus, app_handle: tauri::AppHandle, shutdown: ShutdownCoordinator) -> Self {
+    pub fn new(
+        event_bus: EventBus,
+        app_handle: tauri::AppHandle,
+        shutdown: ShutdownCoordinator,
+    ) -> Self {
         Self {
             event_bus,
             app_handle,

@@ -4,8 +4,8 @@ mod hashing;
 mod processor;
 mod queue_manager;
 mod types;
-mod validation;
 mod upload;
+mod validation;
 
 // Re-export types and constants from submodules
 pub use types::*;
@@ -20,9 +20,9 @@ use tokio::sync::Semaphore;
 
 // Import validation function and PathBuf for tests only
 #[cfg(test)]
-use validation::validate_jsonl_timestamps;
-#[cfg(test)]
 use std::path::PathBuf;
+#[cfg(test)]
+use validation::validate_jsonl_timestamps;
 
 // Types, constants, and structs are now imported from the types module via `pub use types::*;`
 
@@ -252,11 +252,7 @@ mod tests {
             r#"{"timestamp":"2025-01-01T10:00:00.000Z","type":"user","message":"test"}"#;
         fs::write(&test_file, jsonl_content).unwrap();
 
-        let result = queue.add_item(
-            "claude-code",
-            "test-project",
-            test_file.clone(),
-        );
+        let result = queue.add_item("claude-code", "test-project", test_file.clone());
 
         // Clean up
         fs::remove_file(&test_file).ok();
@@ -283,7 +279,11 @@ mod tests {
             "test-session",
             content.to_string(),
         );
-        assert!(result.is_ok(), "add_session_content failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "add_session_content failed: {:?}",
+            result.err()
+        );
 
         // Check in-memory queue directly since get_status() reads from database
         let queue_len = queue.queue.lock().unwrap().len();
@@ -333,11 +333,7 @@ mod tests {
         let jsonl_content = r#"{"type":"user","message":"test"}"#;
         fs::write(&test_file, jsonl_content).unwrap();
 
-        let result = queue.add_item(
-            "claude-code",
-            "test-project",
-            test_file.clone(),
-        );
+        let result = queue.add_item("claude-code", "test-project", test_file.clone());
 
         // Clean up
         fs::remove_file(&test_file).ok();

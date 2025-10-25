@@ -227,8 +227,8 @@ fn parse_claude_session(file_path: &Path, project_name: &str) -> Result<SessionI
         session_end_time,
         duration_ms,
         file_size,
-        content: None, // Claude Code sessions use files directly
-        cwd,           // CWD will be used to derive real project name during upload
+        content: None,      // Claude Code sessions use files directly
+        cwd,                // CWD will be used to derive real project name during upload
         project_hash: None, // Not used for Claude Code
     })
 }
@@ -506,14 +506,16 @@ fn parse_codex_session(file_path: &Path) -> Result<SessionInfo, String> {
         session_end_time,
         duration_ms,
         file_size,
-        content: None,  // Codex sessions use files directly
-        cwd: Some(cwd), // Codex sessions have CWD from parsing
+        content: None,      // Codex sessions use files directly
+        cwd: Some(cwd),     // Codex sessions have CWD from parsing
         project_hash: None, // Not used for Codex
     })
 }
 
 fn parse_copilot_session(file_path: &Path) -> Result<SessionInfo, String> {
-    use super::copilot_parser::{detect_project_and_cwd_from_timeline, load_copilot_config, CopilotSession};
+    use super::copilot_parser::{
+        detect_project_and_cwd_from_timeline, load_copilot_config, CopilotSession,
+    };
     use super::copilot_snapshot::SnapshotManager;
 
     // Read and parse the SOURCE Copilot JSON file
@@ -550,8 +552,8 @@ fn parse_copilot_session(file_path: &Path) -> Result<SessionInfo, String> {
     };
 
     // Create snapshot manager (same as watcher)
-    let snapshot_manager = SnapshotManager::new()
-        .map_err(|e| format!("Failed to create snapshot manager: {}", e))?;
+    let snapshot_manager =
+        SnapshotManager::new().map_err(|e| format!("Failed to create snapshot manager: {}", e))?;
 
     // Load metadata (with file lock)
     let (mut metadata, lock_file) = snapshot_manager
@@ -589,7 +591,7 @@ fn parse_copilot_session(file_path: &Path) -> Result<SessionInfo, String> {
         provider: "github-copilot".to_string(),
         project_name,
         session_id: snapshot_id.to_string(), // Use snapshot UUID, not source session ID
-        file_path: snapshot_path, // Use snapshot path, not source path
+        file_path: snapshot_path,            // Use snapshot path, not source path
         file_name,
         session_start_time,
         session_end_time,
@@ -730,8 +732,8 @@ fn scan_gemini_sessions(base_path: &Path) -> Result<Vec<SessionInfo>, String> {
 }
 
 fn parse_gemini_session(file_path: &Path) -> Result<SessionInfo, String> {
-    use super::gemini_parser::GeminiSession;
     use super::common::extract_session_id_from_filename;
+    use super::gemini_parser::GeminiSession;
 
     let content =
         fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {}", e))?;
@@ -815,7 +817,9 @@ fn parse_gemini_session(file_path: &Path) -> Result<SessionInfo, String> {
 }
 
 /// Extract CWD from Gemini session using shared extraction logic
-fn extract_cwd_from_gemini_session(session: &super::gemini_parser::GeminiSession) -> Option<String> {
+fn extract_cwd_from_gemini_session(
+    session: &super::gemini_parser::GeminiSession,
+) -> Option<String> {
     use super::gemini::infer_cwd_from_session;
     infer_cwd_from_session(session, &session.project_hash)
 }

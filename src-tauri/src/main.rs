@@ -105,7 +105,9 @@ fn main() {
                         tauri_plugin_sql::Migration {
                             version: 12,
                             description: "add_category_improvement_tips",
-                            sql: include_str!("../migrations/012_add_category_improvement_tips.sql"),
+                            sql: include_str!(
+                                "../migrations/012_add_category_improvement_tips.sql"
+                            ),
                             kind: tauri_plugin_sql::MigrationKind::Up,
                         },
                         tauri_plugin_sql::Migration {
@@ -129,19 +131,25 @@ fn main() {
                         tauri_plugin_sql::Migration {
                             version: 16,
                             description: "add_git_diff_improvement_tips",
-                            sql: include_str!("../migrations/016_add_git_diff_improvement_tips.sql"),
+                            sql: include_str!(
+                                "../migrations/016_add_git_diff_improvement_tips.sql"
+                            ),
                             kind: tauri_plugin_sql::MigrationKind::Up,
                         },
                         tauri_plugin_sql::Migration {
                             version: 17,
                             description: "add_context_management_metrics",
-                            sql: include_str!("../migrations/017_add_context_management_metrics.sql"),
+                            sql: include_str!(
+                                "../migrations/017_add_context_management_metrics.sql"
+                            ),
                             kind: tauri_plugin_sql::MigrationKind::Up,
                         },
                         tauri_plugin_sql::Migration {
                             version: 18,
                             description: "update_context_metrics_structure",
-                            sql: include_str!("../migrations/018_update_context_metrics_structure.sql"),
+                            sql: include_str!(
+                                "../migrations/018_update_context_metrics_structure.sql"
+                            ),
                             kind: tauri_plugin_sql::MigrationKind::Up,
                         },
                         tauri_plugin_sql::Migration {
@@ -187,7 +195,11 @@ fn main() {
             let db_handler = DatabaseEventHandler::new(event_bus.clone(), shutdown.clone());
             db_handler.start();
 
-            let frontend_handler = FrontendEventHandler::new(event_bus.clone(), app.handle().clone(), shutdown.clone());
+            let frontend_handler = FrontendEventHandler::new(
+                event_bus.clone(),
+                app.handle().clone(),
+                shutdown.clone(),
+            );
             frontend_handler.start();
 
             // Initialize application state with event bus

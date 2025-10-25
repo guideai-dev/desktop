@@ -120,9 +120,7 @@ async function fetchSessionMetrics(sessionId: string): Promise<SessionMetricsUI 
             contextWindowSize: row.context_window_size,
             contextUtilizationPercent: row.context_utilization_percent,
             compactEventCount: row.compact_event_count,
-            compactEventSteps: row.compact_event_steps
-              ? JSON.parse(row.compact_event_steps)
-              : [],
+            compactEventSteps: row.compact_event_steps ? JSON.parse(row.compact_event_steps) : [],
             avgTokensPerMessage: row.avg_tokens_per_message,
             messagesUntilFirstCompact: row.messages_until_first_compact,
             improvementTips: row.context_improvement_tips
@@ -148,7 +146,12 @@ export function useLocalSessionMetrics(
     error,
   } = useQuery({
     queryKey: ['session-metrics', sessionId],
-    queryFn: () => fetchSessionMetrics(sessionId!),
+    queryFn: () => {
+      if (!sessionId) {
+        throw new Error('Session ID is required')
+      }
+      return fetchSessionMetrics(sessionId)
+    },
     enabled: !!sessionId,
   })
 

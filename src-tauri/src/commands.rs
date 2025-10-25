@@ -214,7 +214,9 @@ pub async fn load_setup_instructions_command(file_name: String) -> Result<String
     match file_name.as_str() {
         "gemini-code.md" => Ok(include_str!("../../setup-instructions/gemini-code.md").to_string()),
         "claude-code.md" => Ok(include_str!("../../setup-instructions/claude-code.md").to_string()),
-        "github-copilot.md" => Ok(include_str!("../../setup-instructions/github-copilot.md").to_string()),
+        "github-copilot.md" => {
+            Ok(include_str!("../../setup-instructions/github-copilot.md").to_string())
+        }
         "opencode.md" => Ok(include_str!("../../setup-instructions/opencode.md").to_string()),
         "codex.md" => Ok(include_str!("../../setup-instructions/codex.md").to_string()),
         _ => Err(format!("Unknown setup instructions file: {}", file_name)),
@@ -526,8 +528,12 @@ pub async fn start_codex_watcher(
     }
 
     // Create new watcher
-    let watcher = CodexWatcher::new(projects, Arc::clone(&state.upload_queue), state.event_bus.clone())
-        .map_err(|e| format!("Failed to create Codex watcher: {}", e))?;
+    let watcher = CodexWatcher::new(
+        projects,
+        Arc::clone(&state.upload_queue),
+        state.event_bus.clone(),
+    )
+    .map_err(|e| format!("Failed to create Codex watcher: {}", e))?;
 
     // Store watcher in state
     if let Ok(mut watchers) = state.watchers.lock() {
@@ -662,8 +668,12 @@ pub async fn start_gemini_watcher(
     }
 
     // Create new watcher - projects parameter now contains hashes (not CWDs)
-    let watcher = GeminiWatcher::new(projects, Arc::clone(&state.upload_queue), state.event_bus.clone())
-        .map_err(|e| format!("Failed to create Gemini watcher: {}", e))?;
+    let watcher = GeminiWatcher::new(
+        projects,
+        Arc::clone(&state.upload_queue),
+        state.event_bus.clone(),
+    )
+    .map_err(|e| format!("Failed to create Gemini watcher: {}", e))?;
 
     // Store watcher in state
     if let Ok(mut watchers) = state.watchers.lock() {
@@ -747,8 +757,7 @@ pub async fn get_provider_logs(
 }
 
 // Session sync state for tracking progress
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SessionSyncProgress {
     pub is_scanning: bool,
     pub is_syncing: bool,
@@ -763,7 +772,6 @@ pub struct SessionSyncProgress {
     pub initial_queue_size: Option<usize>,
     pub is_uploading: bool,
 }
-
 
 // Provider-specific sync state - using std::sync::OnceLock for thread-safe initialization
 use std::sync::OnceLock;
@@ -811,13 +819,16 @@ pub async fn scan_historical_sessions(
     }
 
     // Emit initial progress event
-    let _ = app_handle.emit("rescan-progress", serde_json::json!({
-        "provider": provider_id,
-        "phase": "starting",
-        "current": 0,
-        "total": 0,
-        "message": "Starting scan..."
-    }));
+    let _ = app_handle.emit(
+        "rescan-progress",
+        serde_json::json!({
+            "provider": provider_id,
+            "phase": "starting",
+            "current": 0,
+            "total": 0,
+            "message": "Starting scan..."
+        }),
+    );
 
     // Update progress
     update_sync_progress_for_provider(&provider_id, |progress| {
@@ -848,13 +859,16 @@ pub async fn scan_historical_sessions(
     }
 
     // Emit scanning phase
-    let _ = app_handle.emit("rescan-progress", serde_json::json!({
-        "provider": provider_id,
-        "phase": "scanning",
-        "current": 0,
-        "total": 0,
-        "message": format!("Scanning directory: {}", config.home_directory)
-    }));
+    let _ = app_handle.emit(
+        "rescan-progress",
+        serde_json::json!({
+            "provider": provider_id,
+            "phase": "scanning",
+            "current": 0,
+            "total": 0,
+            "message": format!("Scanning directory: {}", config.home_directory)
+        }),
+    );
 
     // Scan for sessions
     let all_sessions = scan_all_sessions(&provider_id, &config.home_directory).map_err(|e| {
@@ -952,13 +966,16 @@ pub async fn scan_historical_sessions(
     }
 
     // Emit found sessions count
-    let _ = app_handle.emit("rescan-progress", serde_json::json!({
-        "provider": provider_id,
-        "phase": "processing",
-        "current": 0,
-        "total": sessions.len(),
-        "message": format!("Found {} sessions, inserting into database...", sessions.len())
-    }));
+    let _ = app_handle.emit(
+        "rescan-progress",
+        serde_json::json!({
+            "provider": provider_id,
+            "phase": "processing",
+            "current": 0,
+            "total": sessions.len(),
+            "message": format!("Found {} sessions, inserting into database...", sessions.len())
+        }),
+    );
 
     // Insert all sessions into the database (just like file watcher does)
     // The upload queue poller will handle uploading them
@@ -966,13 +983,16 @@ pub async fn scan_historical_sessions(
     for (index, session) in sessions.iter().enumerate() {
         // Emit progress every 10 sessions or on last session
         if index % 10 == 0 || index == sessions.len() - 1 {
-            let _ = app_handle.emit("rescan-progress", serde_json::json!({
-                "provider": provider_id,
-                "phase": "processing",
-                "current": index + 1,
-                "total": sessions.len(),
-                "message": format!("Processing session {} of {}...", index + 1, sessions.len())
-            }));
+            let _ = app_handle.emit(
+                "rescan-progress",
+                serde_json::json!({
+                    "provider": provider_id,
+                    "phase": "processing",
+                    "current": index + 1,
+                    "total": sessions.len(),
+                    "message": format!("Processing session {} of {}...", index + 1, sessions.len())
+                }),
+            );
         }
         match crate::providers::db_helpers::insert_session_immediately(
             &provider_id,
@@ -1004,13 +1024,16 @@ pub async fn scan_historical_sessions(
     }
 
     // Emit completion event
-    let _ = app_handle.emit("rescan-progress", serde_json::json!({
-        "provider": provider_id,
-        "phase": "complete",
-        "current": sessions.len(),
-        "total": sessions.len(),
-        "message": format!("Scan complete! Found and inserted {} sessions.", inserted_count)
-    }));
+    let _ = app_handle.emit(
+        "rescan-progress",
+        serde_json::json!({
+            "provider": provider_id,
+            "phase": "complete",
+            "current": sessions.len(),
+            "total": sessions.len(),
+            "message": format!("Scan complete! Found and inserted {} sessions.", inserted_count)
+        }),
+    );
 
     // Update progress
     update_sync_progress_for_provider(&provider_id, |progress| {
@@ -1235,12 +1258,14 @@ pub async fn clear_all_sessions() -> Result<String, String> {
         crate::database::execute_sql_query("SELECT COUNT(*) as count FROM agent_sessions", vec![])
             .map_err(|e| e.to_string())?;
 
-    let metrics_num = metrics_count.first()
+    let metrics_num = metrics_count
+        .first()
         .and_then(|r| r.get("count"))
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
 
-    let sessions_num = sessions_count.first()
+    let sessions_num = sessions_count
+        .first()
         .and_then(|r| r.get("count"))
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
@@ -1363,40 +1388,41 @@ pub fn start_enabled_watchers(app_state: &AppState) {
                 // No need to return error - just skip this provider
             } else {
                 // Scan for projects
-                match crate::providers::scan_projects("claude-code", &claude_config.home_directory) {
+                match crate::providers::scan_projects("claude-code", &claude_config.home_directory)
+                {
                     Ok(projects) => {
-                    let projects_to_watch = if claude_config.project_selection == "ALL" {
-                        projects.iter().map(|p| p.name.clone()).collect()
-                    } else {
-                        claude_config.selected_projects
-                    };
+                        let projects_to_watch = if claude_config.project_selection == "ALL" {
+                            projects.iter().map(|p| p.name.clone()).collect()
+                        } else {
+                            claude_config.selected_projects
+                        };
 
-                    if !projects_to_watch.is_empty() {
-                        match ClaudeWatcher::new(
-                            projects_to_watch,
-                            Arc::clone(&app_state.upload_queue),
-                            app_state.event_bus.clone(),
-                        ) {
-                            Ok(watcher) => {
-                                if let Ok(mut watchers) = app_state.watchers.lock() {
-                                    watchers.insert(
-                                        "claude-code".to_string(),
-                                        Watcher::Claude(watcher),
-                                    );
-                                    info!("Claude Code watcher started automatically");
+                        if !projects_to_watch.is_empty() {
+                            match ClaudeWatcher::new(
+                                projects_to_watch,
+                                Arc::clone(&app_state.upload_queue),
+                                app_state.event_bus.clone(),
+                            ) {
+                                Ok(watcher) => {
+                                    if let Ok(mut watchers) = app_state.watchers.lock() {
+                                        watchers.insert(
+                                            "claude-code".to_string(),
+                                            Watcher::Claude(watcher),
+                                        );
+                                        info!("Claude Code watcher started automatically");
+                                    }
                                 }
-                            }
-                            Err(e) => {
-                                error!(error = %e, "Failed to start Claude Code watcher");
+                                Err(e) => {
+                                    error!(error = %e, "Failed to start Claude Code watcher");
+                                }
                             }
                         }
                     }
-                }
-                Err(e) => {
-                    error!(error = %e, "Failed to scan Claude Code projects");
+                    Err(e) => {
+                        error!(error = %e, "Failed to scan Claude Code projects");
+                    }
                 }
             }
-                }
         }
     }
 
@@ -1414,38 +1440,40 @@ pub fn start_enabled_watchers(app_state: &AppState) {
             } else {
                 // Scan for projects
                 match crate::providers::scan_projects("opencode", &opencode_config.home_directory) {
-                Ok(projects) => {
-                    let projects_to_watch = if opencode_config.project_selection == "ALL" {
-                        projects.iter().map(|p| p.name.clone()).collect()
-                    } else {
-                        opencode_config.selected_projects
-                    };
+                    Ok(projects) => {
+                        let projects_to_watch = if opencode_config.project_selection == "ALL" {
+                            projects.iter().map(|p| p.name.clone()).collect()
+                        } else {
+                            opencode_config.selected_projects
+                        };
 
-                    if !projects_to_watch.is_empty() {
-                        match OpenCodeWatcher::new(
-                            projects_to_watch,
-                            Arc::clone(&app_state.upload_queue),
-                            app_state.event_bus.clone(),
-                        ) {
-                            Ok(watcher) => {
-                                if let Ok(mut watchers) = app_state.watchers.lock() {
-                                    watchers
-                                        .insert("opencode".to_string(), Watcher::OpenCode(watcher));
-                                    info!("OpenCode watcher started automatically");
+                        if !projects_to_watch.is_empty() {
+                            match OpenCodeWatcher::new(
+                                projects_to_watch,
+                                Arc::clone(&app_state.upload_queue),
+                                app_state.event_bus.clone(),
+                            ) {
+                                Ok(watcher) => {
+                                    if let Ok(mut watchers) = app_state.watchers.lock() {
+                                        watchers.insert(
+                                            "opencode".to_string(),
+                                            Watcher::OpenCode(watcher),
+                                        );
+                                        info!("OpenCode watcher started automatically");
+                                    }
                                 }
-                            }
-                            Err(e) => {
-                                error!(error = %e, "Failed to start OpenCode watcher");
+                                Err(e) => {
+                                    error!(error = %e, "Failed to start OpenCode watcher");
+                                }
                             }
                         }
                     }
-                }
-                Err(e) => {
-                    error!(error = %e, "Failed to scan OpenCode projects");
+                    Err(e) => {
+                        error!(error = %e, "Failed to scan OpenCode projects");
+                    }
                 }
             }
         }
-    }
     }
 
     // Try to start Codex watcher if enabled
@@ -1689,7 +1717,9 @@ pub async fn get_session_git_diff(
 /// Scan a directory for context files (CLAUDE.md, AGENTS.md, GEMINI.md)
 /// Respects .gitignore patterns
 #[tauri::command]
-pub async fn scan_context_files(cwd: String) -> Result<Vec<crate::context_files::ContextFile>, String> {
+pub async fn scan_context_files(
+    cwd: String,
+) -> Result<Vec<crate::context_files::ContextFile>, String> {
     crate::context_files::scan_context_files(&cwd)
 }
 

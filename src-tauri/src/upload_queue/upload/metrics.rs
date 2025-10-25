@@ -3,7 +3,9 @@
 //! Uploads session metadata and metrics, skipping JSONL transcript.
 
 use crate::config::GuideAIConfig;
-use crate::database::{get_full_session_by_id, get_session_metrics, get_session_rating, SessionMetrics};
+use crate::database::{
+    get_full_session_by_id, get_session_metrics, get_session_rating, SessionMetrics,
+};
 use crate::logging::{log_info, log_warn};
 use crate::project_metadata::extract_project_metadata;
 use crate::upload_queue::types::UploadItem;
@@ -11,10 +13,7 @@ use chrono::DateTime;
 use serde_json::Value;
 
 /// Upload session metadata and metrics only (no JSONL transcript)
-pub async fn upload_metrics_only(
-    item: &UploadItem,
-    config: GuideAIConfig,
-) -> Result<(), String> {
+pub async fn upload_metrics_only(item: &UploadItem, config: GuideAIConfig) -> Result<(), String> {
     let api_key = config.api_key.clone().ok_or("No API key configured")?;
     let server_url = config
         .server_url
@@ -22,7 +21,9 @@ pub async fn upload_metrics_only(
         .ok_or("No server URL configured")?;
 
     // Get session ID
-    let session_id = item.session_id.as_ref()
+    let session_id = item
+        .session_id
+        .as_ref()
         .ok_or("Session ID required for metrics-only sync")?;
 
     // Fetch full session data from database
@@ -58,7 +59,10 @@ pub async fn upload_metrics_only(
             Err(e) => {
                 log_warn(
                     "upload-queue",
-                    &format!("⚠ Could not extract project metadata: {} - using folder name", e),
+                    &format!(
+                        "⚠ Could not extract project metadata: {} - using folder name",
+                        e
+                    ),
                 )
                 .unwrap_or_default();
                 (item.project_name.clone(), None)
@@ -132,8 +136,14 @@ pub async fn upload_metrics_only(
 
     if !response.status().is_success() {
         let status = response.status();
-        let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-        return Err(format!("Session metadata upload failed (metrics-only mode) with status {}: {}", status, error_text));
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        return Err(format!(
+            "Session metadata upload failed (metrics-only mode) with status {}: {}",
+            status, error_text
+        ));
     }
 
     log_info(
@@ -177,62 +187,188 @@ pub async fn upload_session_metrics(
     let mut metrics_obj = serde_json::Map::new();
 
     // Session identifiers
-    metrics_obj.insert("sessionId".to_string(), serde_json::json!(metrics.session_id));
+    metrics_obj.insert(
+        "sessionId".to_string(),
+        serde_json::json!(metrics.session_id),
+    );
     metrics_obj.insert("provider".to_string(), serde_json::json!(metrics.provider));
 
     // Performance metrics
-    metrics_obj.insert("responseLatencyMs".to_string(), serde_json::json!(metrics.response_latency_ms));
-    metrics_obj.insert("taskCompletionTimeMs".to_string(), serde_json::json!(metrics.task_completion_time_ms));
-    metrics_obj.insert("performanceTotalResponses".to_string(), serde_json::json!(metrics.performance_total_responses));
+    metrics_obj.insert(
+        "responseLatencyMs".to_string(),
+        serde_json::json!(metrics.response_latency_ms),
+    );
+    metrics_obj.insert(
+        "taskCompletionTimeMs".to_string(),
+        serde_json::json!(metrics.task_completion_time_ms),
+    );
+    metrics_obj.insert(
+        "performanceTotalResponses".to_string(),
+        serde_json::json!(metrics.performance_total_responses),
+    );
 
     // Usage metrics
-    metrics_obj.insert("readWriteRatio".to_string(), serde_json::json!(metrics.read_write_ratio));
-    metrics_obj.insert("inputClarityScore".to_string(), serde_json::json!(metrics.input_clarity_score));
-    metrics_obj.insert("readOperations".to_string(), serde_json::json!(metrics.read_operations));
-    metrics_obj.insert("writeOperations".to_string(), serde_json::json!(metrics.write_operations));
-    metrics_obj.insert("totalUserMessages".to_string(), serde_json::json!(metrics.total_user_messages));
+    metrics_obj.insert(
+        "readWriteRatio".to_string(),
+        serde_json::json!(metrics.read_write_ratio),
+    );
+    metrics_obj.insert(
+        "inputClarityScore".to_string(),
+        serde_json::json!(metrics.input_clarity_score),
+    );
+    metrics_obj.insert(
+        "readOperations".to_string(),
+        serde_json::json!(metrics.read_operations),
+    );
+    metrics_obj.insert(
+        "writeOperations".to_string(),
+        serde_json::json!(metrics.write_operations),
+    );
+    metrics_obj.insert(
+        "totalUserMessages".to_string(),
+        serde_json::json!(metrics.total_user_messages),
+    );
 
     // Error metrics
-    metrics_obj.insert("errorCount".to_string(), serde_json::json!(metrics.error_count));
-    metrics_obj.insert("errorTypes".to_string(), serde_json::json!(parse_array(&metrics.error_types)));
-    metrics_obj.insert("lastErrorMessage".to_string(), serde_json::json!(metrics.last_error_message));
-    metrics_obj.insert("recoveryAttempts".to_string(), serde_json::json!(metrics.recovery_attempts));
-    metrics_obj.insert("fatalErrors".to_string(), serde_json::json!(metrics.fatal_errors));
+    metrics_obj.insert(
+        "errorCount".to_string(),
+        serde_json::json!(metrics.error_count),
+    );
+    metrics_obj.insert(
+        "errorTypes".to_string(),
+        serde_json::json!(parse_array(&metrics.error_types)),
+    );
+    metrics_obj.insert(
+        "lastErrorMessage".to_string(),
+        serde_json::json!(metrics.last_error_message),
+    );
+    metrics_obj.insert(
+        "recoveryAttempts".to_string(),
+        serde_json::json!(metrics.recovery_attempts),
+    );
+    metrics_obj.insert(
+        "fatalErrors".to_string(),
+        serde_json::json!(metrics.fatal_errors),
+    );
 
     // Engagement metrics
-    metrics_obj.insert("interruptionRate".to_string(), serde_json::json!(metrics.interruption_rate));
-    metrics_obj.insert("sessionLengthMinutes".to_string(), serde_json::json!(metrics.session_length_minutes));
-    metrics_obj.insert("totalInterruptions".to_string(), serde_json::json!(metrics.total_interruptions));
-    metrics_obj.insert("engagementTotalResponses".to_string(), serde_json::json!(metrics.engagement_total_responses));
+    metrics_obj.insert(
+        "interruptionRate".to_string(),
+        serde_json::json!(metrics.interruption_rate),
+    );
+    metrics_obj.insert(
+        "sessionLengthMinutes".to_string(),
+        serde_json::json!(metrics.session_length_minutes),
+    );
+    metrics_obj.insert(
+        "totalInterruptions".to_string(),
+        serde_json::json!(metrics.total_interruptions),
+    );
+    metrics_obj.insert(
+        "engagementTotalResponses".to_string(),
+        serde_json::json!(metrics.engagement_total_responses),
+    );
 
     // Quality metrics
-    metrics_obj.insert("taskSuccessRate".to_string(), serde_json::json!(metrics.task_success_rate));
-    metrics_obj.insert("iterationCount".to_string(), serde_json::json!(metrics.iteration_count));
-    metrics_obj.insert("processQualityScore".to_string(), serde_json::json!(metrics.process_quality_score));
-    metrics_obj.insert("usedPlanMode".to_string(), serde_json::json!(metrics.used_plan_mode));
-    metrics_obj.insert("usedTodoTracking".to_string(), serde_json::json!(metrics.used_todo_tracking));
-    metrics_obj.insert("overTopAffirmations".to_string(), serde_json::json!(metrics.over_top_affirmations));
-    metrics_obj.insert("successfulOperations".to_string(), serde_json::json!(metrics.successful_operations));
-    metrics_obj.insert("totalOperations".to_string(), serde_json::json!(metrics.total_operations));
-    metrics_obj.insert("exitPlanModeCount".to_string(), serde_json::json!(metrics.exit_plan_mode_count));
-    metrics_obj.insert("todoWriteCount".to_string(), serde_json::json!(metrics.todo_write_count));
-    metrics_obj.insert("overTopAffirmationsPhrases".to_string(), serde_json::json!(parse_array(&metrics.over_top_affirmations_phrases)));
-    metrics_obj.insert("improvementTips".to_string(), serde_json::json!(parse_array(&metrics.improvement_tips)));
+    metrics_obj.insert(
+        "taskSuccessRate".to_string(),
+        serde_json::json!(metrics.task_success_rate),
+    );
+    metrics_obj.insert(
+        "iterationCount".to_string(),
+        serde_json::json!(metrics.iteration_count),
+    );
+    metrics_obj.insert(
+        "processQualityScore".to_string(),
+        serde_json::json!(metrics.process_quality_score),
+    );
+    metrics_obj.insert(
+        "usedPlanMode".to_string(),
+        serde_json::json!(metrics.used_plan_mode),
+    );
+    metrics_obj.insert(
+        "usedTodoTracking".to_string(),
+        serde_json::json!(metrics.used_todo_tracking),
+    );
+    metrics_obj.insert(
+        "overTopAffirmations".to_string(),
+        serde_json::json!(metrics.over_top_affirmations),
+    );
+    metrics_obj.insert(
+        "successfulOperations".to_string(),
+        serde_json::json!(metrics.successful_operations),
+    );
+    metrics_obj.insert(
+        "totalOperations".to_string(),
+        serde_json::json!(metrics.total_operations),
+    );
+    metrics_obj.insert(
+        "exitPlanModeCount".to_string(),
+        serde_json::json!(metrics.exit_plan_mode_count),
+    );
+    metrics_obj.insert(
+        "todoWriteCount".to_string(),
+        serde_json::json!(metrics.todo_write_count),
+    );
+    metrics_obj.insert(
+        "overTopAffirmationsPhrases".to_string(),
+        serde_json::json!(parse_array(&metrics.over_top_affirmations_phrases)),
+    );
+    metrics_obj.insert(
+        "improvementTips".to_string(),
+        serde_json::json!(parse_array(&metrics.improvement_tips)),
+    );
 
     // Git diff metrics (desktop-only)
-    metrics_obj.insert("gitTotalFilesChanged".to_string(), serde_json::json!(metrics.git_total_files_changed));
-    metrics_obj.insert("gitLinesAdded".to_string(), serde_json::json!(metrics.git_lines_added));
-    metrics_obj.insert("gitLinesRemoved".to_string(), serde_json::json!(metrics.git_lines_removed));
-    metrics_obj.insert("gitLinesModified".to_string(), serde_json::json!(metrics.git_lines_modified));
-    metrics_obj.insert("gitNetLinesChanged".to_string(), serde_json::json!(metrics.git_net_lines_changed));
-    metrics_obj.insert("gitLinesReadPerLineChanged".to_string(), serde_json::json!(metrics.git_lines_read_per_line_changed));
-    metrics_obj.insert("gitReadsPerFileChanged".to_string(), serde_json::json!(metrics.git_reads_per_file_changed));
-    metrics_obj.insert("gitLinesChangedPerMinute".to_string(), serde_json::json!(metrics.git_lines_changed_per_minute));
-    metrics_obj.insert("gitLinesChangedPerToolUse".to_string(), serde_json::json!(metrics.git_lines_changed_per_tool_use));
-    metrics_obj.insert("totalLinesRead".to_string(), serde_json::json!(metrics.total_lines_read));
+    metrics_obj.insert(
+        "gitTotalFilesChanged".to_string(),
+        serde_json::json!(metrics.git_total_files_changed),
+    );
+    metrics_obj.insert(
+        "gitLinesAdded".to_string(),
+        serde_json::json!(metrics.git_lines_added),
+    );
+    metrics_obj.insert(
+        "gitLinesRemoved".to_string(),
+        serde_json::json!(metrics.git_lines_removed),
+    );
+    metrics_obj.insert(
+        "gitLinesModified".to_string(),
+        serde_json::json!(metrics.git_lines_modified),
+    );
+    metrics_obj.insert(
+        "gitNetLinesChanged".to_string(),
+        serde_json::json!(metrics.git_net_lines_changed),
+    );
+    metrics_obj.insert(
+        "gitLinesReadPerLineChanged".to_string(),
+        serde_json::json!(metrics.git_lines_read_per_line_changed),
+    );
+    metrics_obj.insert(
+        "gitReadsPerFileChanged".to_string(),
+        serde_json::json!(metrics.git_reads_per_file_changed),
+    );
+    metrics_obj.insert(
+        "gitLinesChangedPerMinute".to_string(),
+        serde_json::json!(metrics.git_lines_changed_per_minute),
+    );
+    metrics_obj.insert(
+        "gitLinesChangedPerToolUse".to_string(),
+        serde_json::json!(metrics.git_lines_changed_per_tool_use),
+    );
+    metrics_obj.insert(
+        "totalLinesRead".to_string(),
+        serde_json::json!(metrics.total_lines_read),
+    );
 
     // Custom metrics
-    metrics_obj.insert("customMetrics".to_string(), serde_json::json!(metrics.custom_metrics.as_ref().and_then(|s| serde_json::from_str::<Value>(s).ok())));
+    metrics_obj.insert(
+        "customMetrics".to_string(),
+        serde_json::json!(metrics
+            .custom_metrics
+            .as_ref()
+            .and_then(|s| serde_json::from_str::<Value>(s).ok())),
+    );
 
     let metrics_request = serde_json::json!({
         "metrics": [metrics_obj]
@@ -253,8 +389,14 @@ pub async fn upload_session_metrics(
 
     if !response.status().is_success() {
         let status = response.status();
-        let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-        return Err(format!("Session metrics upload failed with status {}: {}", status, error_text));
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        return Err(format!(
+            "Session metrics upload failed with status {}: {}",
+            status, error_text
+        ));
     }
 
     log_info(

@@ -1,14 +1,14 @@
 import {
   MetricsOverview,
   PhaseTimeline,
+  ScrollToTopButton,
   SessionDetailHeader,
+  type SessionPhaseAnalysis,
   SessionTodosTab,
   TokenUsageChart,
-  ScrollToTopButton,
-  type SessionPhaseAnalysis,
   VirtualizedMessageList,
-  isTimelineGroup,
   extractTodosAuto,
+  isTimelineGroup,
 } from '@guideai-dev/session-processing/ui'
 import type { SessionRating } from '@guideai-dev/session-processing/ui'
 import {
@@ -153,7 +153,13 @@ export default function SessionDetailPage() {
 
       // Remove all effects after animation
       setTimeout(() => {
-        messageElement.classList.remove('ring-4', 'ring-primary', 'ring-offset-2', 'bg-primary/20', 'bg-primary/10')
+        messageElement.classList.remove(
+          'ring-4',
+          'ring-primary',
+          'ring-offset-2',
+          'bg-primary/20',
+          'bg-primary/10'
+        )
       }, 2000)
     }
   }, [])
@@ -174,14 +180,24 @@ export default function SessionDetailPage() {
     error,
   } = useQuery({
     queryKey: ['session-metadata', sessionId],
-    queryFn: () => fetchSessionMetadata(sessionId!),
+    queryFn: () => {
+      if (!sessionId) {
+        throw new Error('Session ID is required')
+      }
+      return fetchSessionMetadata(sessionId)
+    },
     enabled: !!sessionId,
   })
 
   // Fetch project for session
   const { data: project } = useQuery({
     queryKey: ['session-project', sessionId],
-    queryFn: () => fetchSessionProject(sessionId!),
+    queryFn: () => {
+      if (!sessionId) {
+        throw new Error('Session ID is required')
+      }
+      return fetchSessionProject(sessionId)
+    },
     enabled: !!sessionId,
   })
 
@@ -718,7 +734,9 @@ export default function SessionDetailPage() {
                     d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
                   />
                 </svg>
-                <span className={`hidden md:inline ${hasPendingChanges && activeTab !== 'changes' ? 'text-primary' : ''}`}>
+                <span
+                  className={`hidden md:inline ${hasPendingChanges && activeTab !== 'changes' ? 'text-primary' : ''}`}
+                >
                   Changes
                 </span>
                 {activeTab !== 'changes' &&
@@ -822,10 +840,7 @@ export default function SessionDetailPage() {
             ) : (
               <>
                 {/* TokenUsageChart uses ALL messages for accurate totals */}
-                <TokenUsageChart
-                  items={timeline?.items || []}
-                  onMessageClick={scrollToMessage}
-                />
+                <TokenUsageChart items={timeline?.items || []} onMessageClick={scrollToMessage} />
                 {/* VirtualizedMessageList uses filtered messages */}
                 <VirtualizedMessageList items={orderedItems} />
                 {/* Floating scroll to top button - appears when scrolled down */}

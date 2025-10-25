@@ -18,6 +18,19 @@
     "typecheck": "pnpm typecheck:ts && pnpm typecheck:rust",
     "typecheck:ts": "tsc --noEmit",
     "typecheck:rust": "cd src-tauri && cargo check --all-targets && cargo clippy -- -D warnings",
+    "lint": "pnpm lint:ts && pnpm lint:rust",
+    "lint:ts": "biome check . --diagnostic-level=error",
+    "lint:rust": "cd src-tauri && cargo clippy -- -D warnings",
+    "lint:all": "biome check .",
+    "lint:fix": "pnpm lint:fix:ts && pnpm lint:fix:rust",
+    "lint:fix:ts": "biome check . --write",
+    "lint:fix:rust": "cd src-tauri && cargo clippy --fix --allow-dirty --allow-staged -- -D warnings",
+    "format": "pnpm format:ts && pnpm format:rust",
+    "format:ts": "biome format . --write",
+    "format:rust": "cd src-tauri && cargo fmt",
+    "format:check": "pnpm format:check:ts && pnpm format:check:rust",
+    "format:check:ts": "biome format .",
+    "format:check:rust": "cd src-tauri && cargo fmt -- --check",
     "test": "pnpm test:ts && pnpm test:rust",
     "test:ts": "vitest run",
     "test:watch": "vitest",
@@ -79,11 +92,5 @@
     "type": "git",
     "url": "https://github.com/guideai-dev/desktop.git"
   },
-  "keywords": [
-    "ai",
-    "guide",
-    "desktop",
-    "tauri",
-    "menubar"
-  ]
+  "keywords": ["ai", "guide", "desktop", "tauri", "menubar"]
 }

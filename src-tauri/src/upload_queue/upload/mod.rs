@@ -3,25 +3,25 @@
 //! Routes upload requests to appropriate handlers (v2, metrics, project).
 
 // Upload submodules
-pub mod v2;
 pub mod metrics;
 pub mod project;
 pub mod retry;
+pub mod v2;
 
 // Re-export main functions
-pub use v2::upload_v2;
 pub use metrics::upload_metrics_only;
+pub use v2::upload_v2;
 
 // Re-export deprecated function for backward compatibility
 #[allow(deprecated)]
 pub use project::upload_project_metadata_static;
 
 // Re-export retry utilities
-pub use retry::{classify_error, should_retry, schedule_retry, calculate_backoff, ErrorType};
+pub use retry::{calculate_backoff, classify_error, schedule_retry, should_retry, ErrorType};
 
 use crate::config::GuideAIConfig;
-use crate::upload_queue::types::UploadItem;
 use crate::upload_queue::hashing::{calculate_content_hash_sha256, calculate_file_hash_sha256};
+use crate::upload_queue::types::UploadItem;
 
 /// Process an upload item by routing to the appropriate upload method based on sync mode
 pub async fn process_upload_item(

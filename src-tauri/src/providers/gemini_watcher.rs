@@ -25,7 +25,6 @@ pub struct FileChangeEvent {
     pub session_id: String,
 }
 
-
 #[derive(Debug)]
 pub struct GeminiWatcher {
     _watcher: RecommendedWatcher,
@@ -108,7 +107,10 @@ impl GeminiWatcher {
                 }
             } else if let Err(e) = log_warn(
                 PROVIDER_ID,
-                &format!("⚠ Project chats directory not found: {}", chats_path.display()),
+                &format!(
+                    "⚠ Project chats directory not found: {}",
+                    chats_path.display()
+                ),
             ) {
                 eprintln!("Logging error: {}", e);
             }
@@ -193,9 +195,7 @@ impl GeminiWatcher {
             // Process file system events with timeout
             match rx.recv_timeout(EVENT_TIMEOUT) {
                 Ok(Ok(event)) => {
-                    if let Some(file_event) =
-                        Self::process_file_event(&event, &tmp_path)
-                    {
+                    if let Some(file_event) = Self::process_file_event(&event, &tmp_path) {
                         // Convert Gemini JSON to JSONL and cache it
                         let jsonl_path = match Self::convert_to_jsonl_and_cache(
                             &file_event.path,
@@ -205,10 +205,7 @@ impl GeminiWatcher {
                             Err(e) => {
                                 if let Err(log_err) = log_error(
                                     PROVIDER_ID,
-                                    &format!(
-                                        "Failed to convert Gemini JSON to JSONL: {}",
-                                        e
-                                    ),
+                                    &format!("Failed to convert Gemini JSON to JSONL: {}", e),
                                 ) {
                                     eprintln!("Logging error: {}", log_err);
                                 }
@@ -223,15 +220,10 @@ impl GeminiWatcher {
                         let is_new_session = !session_states.contains(&file_event.session_id);
 
                         // Get or create session state
-                        let state = session_states.get_or_create(
-                            &file_event.session_id,
-                            jsonl_size,
-                        );
-                        let should_log = state.should_log(
-                            jsonl_size,
-                            MIN_SIZE_CHANGE_BYTES,
-                            is_new_session,
-                        );
+                        let state =
+                            session_states.get_or_create(&file_event.session_id, jsonl_size);
+                        let should_log =
+                            state.should_log(jsonl_size, MIN_SIZE_CHANGE_BYTES, is_new_session);
 
                         // Extract real project name from JSONL (CWD -> project name)
                         // Fallback to shortened hash if CWD extraction fails
@@ -244,7 +236,7 @@ impl GeminiWatcher {
                             session_id: file_event.session_id.clone(),
                             project_name, // Real project name extracted from CWD
                             file_path: jsonl_path.clone(), // Use JSONL path instead of original JSON
-                            file_size: jsonl_size,  // Use JSONL file size
+                            file_size: jsonl_size,         // Use JSONL file size
                         };
 
                         if let Err(e) = event_bus.publish(PROVIDER_ID, payload) {
@@ -310,10 +302,7 @@ impl GeminiWatcher {
         }
     }
 
-    fn process_file_event(
-        event: &Event,
-        tmp_path: &Path,
-    ) -> Option<FileChangeEvent> {
+    fn process_file_event(event: &Event, tmp_path: &Path) -> Option<FileChangeEvent> {
         // Only process write events for session JSON files
         match &event.kind {
             EventKind::Create(_) | EventKind::Modify(_) => {
@@ -370,7 +359,6 @@ impl GeminiWatcher {
         }
         None
     }
-
 
     /// Convert Gemini JSON file to JSONL and cache it
     /// Returns the path to the cached JSONL file
@@ -436,7 +424,6 @@ impl GeminiWatcher {
 
         None
     }
-
 
     pub fn stop(&self) {
         if let Ok(mut running) = self.is_running.lock() {

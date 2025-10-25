@@ -197,17 +197,13 @@ impl ClaudeWatcher {
             // Process file system events with timeout
             match rx.recv_timeout(EVENT_TIMEOUT) {
                 Ok(Ok(event)) => {
-                    if let Some(file_event) =
-                        Self::process_file_event(&event, &projects_path)
-                    {
+                    if let Some(file_event) = Self::process_file_event(&event, &projects_path) {
                         // Check if this is a new session (before get_or_create)
                         let is_new_session = !session_states.contains(&file_event.session_id);
 
                         // Get or create session state
-                        let state = session_states.get_or_create(
-                            &file_event.session_id,
-                            file_event.file_size,
-                        );
+                        let state = session_states
+                            .get_or_create(&file_event.session_id, file_event.file_size);
                         let should_log = state.should_log(
                             file_event.file_size,
                             MIN_SIZE_CHANGE_BYTES,
@@ -286,10 +282,7 @@ impl ClaudeWatcher {
         }
     }
 
-    fn process_file_event(
-        event: &Event,
-        projects_path: &Path,
-    ) -> Option<FileChangeEvent> {
+    fn process_file_event(event: &Event, projects_path: &Path) -> Option<FileChangeEvent> {
         // Only process write events for .jsonl files
         match &event.kind {
             EventKind::Create(_) | EventKind::Modify(_) => {
@@ -337,7 +330,6 @@ impl ClaudeWatcher {
         }
         None
     }
-
 
     pub fn stop(&self) {
         if let Ok(mut running) = self.is_running.lock() {
@@ -437,8 +429,7 @@ mod tests {
             paths: vec![hidden_file.clone()],
             attrs: Default::default(),
         };
-        let result =
-            ClaudeWatcher::process_file_event(&hidden_event, projects_path);
+        let result = ClaudeWatcher::process_file_event(&hidden_event, projects_path);
         assert!(result.is_none(), "Hidden file should be ignored");
 
         // Test normal file is processed
@@ -447,8 +438,7 @@ mod tests {
             paths: vec![normal_file.clone()],
             attrs: Default::default(),
         };
-        let result =
-            ClaudeWatcher::process_file_event(&normal_event, projects_path);
+        let result = ClaudeWatcher::process_file_event(&normal_event, projects_path);
         assert!(result.is_some(), "Normal file should be processed");
         assert_eq!(result.unwrap().session_id, "session-123");
     }

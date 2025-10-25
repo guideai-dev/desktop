@@ -128,7 +128,10 @@ impl CodexWatcher {
         watcher.watch(&sessions_path, RecursiveMode::NonRecursive)?;
         if let Err(e) = log_info(
             PROVIDER_ID,
-            &format!("📂 Watching root sessions directory: {}", sessions_path.display()),
+            &format!(
+                "📂 Watching root sessions directory: {}",
+                sessions_path.display()
+            ),
         ) {
             eprintln!("Logging error: {}", e);
         }
@@ -243,17 +246,13 @@ impl CodexWatcher {
             // Process file system events with timeout
             match rx.recv_timeout(EVENT_TIMEOUT) {
                 Ok(Ok(event)) => {
-                    if let Some(file_event) =
-                        Self::process_file_event(&event, &sessions_path)
-                    {
+                    if let Some(file_event) = Self::process_file_event(&event, &sessions_path) {
                         // Check if this is a new session (before get_or_create)
                         let is_new_session = !session_states.contains(&file_event.session_id);
 
                         // Get or create session state
-                        let state = session_states.get_or_create(
-                            &file_event.session_id,
-                            file_event.file_size,
-                        );
+                        let state = session_states
+                            .get_or_create(&file_event.session_id, file_event.file_size);
                         let should_log = state.should_log(
                             file_event.file_size,
                             MIN_SIZE_CHANGE_BYTES,
@@ -335,10 +334,7 @@ impl CodexWatcher {
         }
     }
 
-    fn process_file_event(
-        event: &Event,
-        sessions_path: &Path,
-    ) -> Option<FileChangeEvent> {
+    fn process_file_event(event: &Event, sessions_path: &Path) -> Option<FileChangeEvent> {
         // Filter out event types we don't care about
         match &event.kind {
             EventKind::Access(_) | EventKind::Remove(_) | EventKind::Any | EventKind::Other => {
@@ -384,7 +380,10 @@ impl CodexWatcher {
                         // Only log if extraction truly failed
                         if let Err(e) = log_error(
                             PROVIDER_ID,
-                            &format!("❌ Failed to extract session ID from filename: {}", path.display()),
+                            &format!(
+                                "❌ Failed to extract session ID from filename: {}",
+                                path.display()
+                            ),
                         ) {
                             eprintln!("Logging error: {}", e);
                         }
@@ -415,11 +414,17 @@ impl CodexWatcher {
                 for i in 0..=parts.len().saturating_sub(5) {
                     let potential_uuid = format!(
                         "{}-{}-{}-{}-{}",
-                        parts[i], parts[i + 1], parts[i + 2], parts[i + 3], parts[i + 4]
+                        parts[i],
+                        parts[i + 1],
+                        parts[i + 2],
+                        parts[i + 3],
+                        parts[i + 4]
                     );
                     // Check if it looks like a valid UUID (36 chars, hex digits)
                     if potential_uuid.len() == 36
-                        && potential_uuid.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+                        && potential_uuid
+                            .chars()
+                            .all(|c| c.is_ascii_hexdigit() || c == '-')
                     {
                         return Some(potential_uuid);
                     }
@@ -457,7 +462,10 @@ impl CodexWatcher {
         // Log error only if all extraction methods failed
         let _ = log_error(
             PROVIDER_ID,
-            &format!("❌ Failed to extract session ID from: {}", file_path.display()),
+            &format!(
+                "❌ Failed to extract session ID from: {}",
+                file_path.display()
+            ),
         );
 
         None
@@ -474,8 +482,12 @@ impl CodexWatcher {
             for line_content in reader.lines().take(10).flatten() {
                 if let Ok(entry) = serde_json::from_str::<serde_json::Value>(&line_content) {
                     // Try to find CWD from various locations in the JSON
-                    let cwd = entry.get("cwd").and_then(|v| v.as_str())
-                        .or_else(|| entry.get("payload").and_then(|p| p.get("cwd")).and_then(|v| v.as_str()));
+                    let cwd = entry.get("cwd").and_then(|v| v.as_str()).or_else(|| {
+                        entry
+                            .get("payload")
+                            .and_then(|p| p.get("cwd"))
+                            .and_then(|v| v.as_str())
+                    });
 
                     if let Some(cwd_path) = cwd {
                         return Path::new(cwd_path)
@@ -550,6 +562,9 @@ mod tests {
     fn test_extract_session_id_from_filename() {
         let path = std::path::Path::new("/Users/user/.codex/sessions/2025/10/06/rollout-2025-10-06T22-15-35-0199bb2a-4c23-76b1-bfb0-2d78295c0f29.jsonl");
         let session_id = CodexWatcher::extract_session_id_from_filename(path);
-        assert_eq!(session_id, Some("0199bb2a-4c23-76b1-bfb0-2d78295c0f29".to_string()));
+        assert_eq!(
+            session_id,
+            Some("0199bb2a-4c23-76b1-bfb0-2d78295c0f29".to_string())
+        );
     }
 }

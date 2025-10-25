@@ -264,7 +264,9 @@ export function SessionChangesTab({
                 className={`btn btn-xs gap-1 ${hasPendingChanges ? 'btn-primary' : 'btn-ghost'}`}
                 onClick={handleRefresh}
                 disabled={isFetching}
-                title={hasPendingChanges ? 'New changes detected - click to refresh' : 'Refresh changes'}
+                title={
+                  hasPendingChanges ? 'New changes detected - click to refresh' : 'Refresh changes'
+                }
               >
                 <ArrowPathIcon className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
                 {hasPendingChanges && <span className="hidden sm:inline">Update Available</span>}

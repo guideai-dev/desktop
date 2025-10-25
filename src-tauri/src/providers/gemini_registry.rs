@@ -67,12 +67,7 @@ impl GeminiProjectRegistry {
     }
 
     /// Update or insert a project entry
-    pub fn update_project(
-        &mut self,
-        hash: String,
-        cwd: String,
-        name: String,
-    ) {
+    pub fn update_project(&mut self, hash: String, cwd: String, name: String) {
         let now = chrono::Utc::now().to_rfc3339();
 
         self.projects.insert(
@@ -92,10 +87,11 @@ impl GeminiProjectRegistry {
 
     /// Get the path to the registry file
     fn get_registry_path() -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
-        let config_dir = crate::config::get_providers_dir()
-            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+        let config_dir = crate::config::get_providers_dir().map_err(
+            |e| -> Box<dyn std::error::Error + Send + Sync> {
                 Box::new(std::io::Error::other(e.to_string()))
-            })?;
+            },
+        )?;
         Ok(config_dir.join("gemini-code-projects.json"))
     }
 }

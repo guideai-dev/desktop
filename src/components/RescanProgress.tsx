@@ -19,7 +19,12 @@ function RescanProgress({ phase, current, total, message, onCancel }: RescanProg
           {!isComplete ? (
             <span className="loading loading-spinner loading-sm text-primary" />
           ) : (
-            <svg className="w-5 h-5 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg
+              className="w-5 h-5 text-success"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"

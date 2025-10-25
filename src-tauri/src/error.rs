@@ -75,9 +75,7 @@ impl<T, E: Into<GuideAIError>> ErrorContext<T> for Result<T, E> {
                 GuideAIError::Config(s) => GuideAIError::Config(format!("{}: {}", msg, s)),
                 GuideAIError::Upload(s) => GuideAIError::Upload(format!("{}: {}", msg, s)),
                 GuideAIError::Auth(s) => GuideAIError::Auth(format!("{}: {}", msg, s)),
-                GuideAIError::Validation(s) => {
-                    GuideAIError::Validation(format!("{}: {}", msg, s))
-                }
+                GuideAIError::Validation(s) => GuideAIError::Validation(format!("{}: {}", msg, s)),
                 GuideAIError::Io(e) => GuideAIError::Io(e),
                 GuideAIError::Json(e) => GuideAIError::Json(e),
                 GuideAIError::Http(e) => GuideAIError::Http(e),
@@ -108,8 +106,10 @@ mod tests {
 
     #[test]
     fn test_error_context() {
-        let result: Result<(), std::io::Error> =
-            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "file not found"));
+        let result: Result<(), std::io::Error> = Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "file not found",
+        ));
         let result = result.context("Failed to read config file");
 
         assert!(result.is_err());

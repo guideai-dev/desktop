@@ -9,8 +9,8 @@ import type { ParsedSession } from '@guideai-dev/session-processing/processors'
 import { invoke } from '@tauri-apps/api/core'
 import { useCallback, useState } from 'react'
 import { useConfigStore } from '../stores/configStore'
-import { useAuth } from './useAuth'
 import type { AiProcessingStep } from './useAiProcessingProgress'
+import { useAuth } from './useAuth'
 
 interface AiProcessingResult {
   summary?: string
@@ -61,10 +61,13 @@ export function useAiProcessing() {
           ...parsedSession,
           messages: parsedSession.messages.map(msg => ({
             ...msg,
-            type: msg.type === 'user_input' ? ('user' as const) :
-                  msg.type === 'assistant_response' ? ('assistant' as const) :
-                  msg.type
-          }))
+            type:
+              msg.type === 'user_input'
+                ? ('user' as const)
+                : msg.type === 'assistant_response'
+                  ? ('assistant' as const)
+                  : msg.type,
+          })),
         }
 
         // Check for available API keys
@@ -75,10 +78,16 @@ export function useAiProcessing() {
           return null
         }
 
-        // Prefer Claude if available, otherwise use Gemini
+        // Prefer Claude if available, otherwise use Gemini (guaranteed to exist here)
         const adapter = claudeKey
           ? new ClaudeModelAdapter({ apiKey: claudeKey })
-          : new GeminiModelAdapter({ apiKey: geminiKey! })
+          : geminiKey
+            ? new GeminiModelAdapter({ apiKey: geminiKey })
+            : null
+
+        if (!adapter) {
+          return null
+        }
 
         const result: AiProcessingResult = {
           metadata: {},
@@ -182,8 +191,8 @@ export function useAiProcessing() {
               : undefined,
           })
 
-          if (intentResult.success && intentResult.output) {
-            result.metadata!['intent-extraction'] = intentResult.output as any
+          if (intentResult.success && intentResult.output && result.metadata) {
+            result.metadata['intent-extraction'] = intentResult.output as any
           } else if (intentResult.metadata?.error) {
             const errorMsg = intentResult.metadata.error.toLowerCase()
             if (
@@ -248,10 +257,10 @@ export function useAiProcessing() {
               : undefined,
           })
 
-          if (qualityResult.success && qualityResult.output) {
+          if (qualityResult.success && qualityResult.output && result.metadata) {
             const assessment = qualityResult.output as any
             result.qualityScore = assessment.score
-            result.metadata!['quality-assessment'] = assessment
+            result.metadata['quality-assessment'] = assessment
           } else if (qualityResult.metadata?.error) {
             // Check if it's an authentication/API error (4xx client errors)
             const errorMsg = qualityResult.metadata.error.toLowerCase()

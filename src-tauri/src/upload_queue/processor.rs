@@ -18,7 +18,9 @@ use tokio::time::sleep;
 
 use super::queue_manager;
 use super::types::{UploadItem, DB_POLL_INTERVAL_SECS, MAX_UPLOADED_HASHES};
-use super::upload::{process_upload_item, classify_error, should_retry, schedule_retry, calculate_backoff, ErrorType};
+use super::upload::{
+    calculate_backoff, classify_error, process_upload_item, schedule_retry, should_retry, ErrorType,
+};
 
 /// Main upload processor that manages the processing loop
 #[derive(Clone)]
@@ -94,11 +96,8 @@ impl UploadProcessor {
 
             // Poll database if needed
             if let Err(e) = self.poll_database_if_needed(&mut last_db_poll).await {
-                log_error(
-                    "upload-queue",
-                    &format!("Database polling failed: {}", e),
-                )
-                .unwrap_or_default();
+                log_error("upload-queue", &format!("Database polling failed: {}", e))
+                    .unwrap_or_default();
             }
 
             // Process available items
@@ -157,10 +156,7 @@ impl UploadProcessor {
 
         log_info(
             "upload-queue",
-            &format!(
-                "📊 Found {} unsynced sessions in database",
-                unsynced.len()
-            ),
+            &format!("📊 Found {} unsynced sessions in database", unsynced.len()),
         )
         .unwrap_or_default();
 
@@ -270,14 +266,7 @@ impl UploadProcessor {
                     handle_upload_success(item_mut, &uploaded_hashes, &app_handle).await;
                 }
                 Err(e) => {
-                    handle_upload_failure(
-                        item_mut,
-                        e,
-                        &queue,
-                        &failed_items,
-                        &app_handle,
-                    )
-                    .await;
+                    handle_upload_failure(item_mut, e, &queue, &failed_items, &app_handle).await;
                 }
             }
 

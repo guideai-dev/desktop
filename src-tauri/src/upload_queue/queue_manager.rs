@@ -186,8 +186,14 @@ pub fn add_historical_session(
 
     // Extract project metadata if CWD is available (will be embedded in upload payload)
     let real_project_name = if let Some(ref cwd) = session.cwd {
-        log_info("upload-queue", &format!("📁 Extracting project metadata from CWD: {} (for session {}, Claude folder: {})", cwd, session.session_id, session.project_name))
-            .unwrap_or_default();
+        log_info(
+            "upload-queue",
+            &format!(
+                "📁 Extracting project metadata from CWD: {} (for session {}, Claude folder: {})",
+                cwd, session.session_id, session.project_name
+            ),
+        )
+        .unwrap_or_default();
 
         match extract_project_metadata(cwd) {
             Ok(metadata) => {

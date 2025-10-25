@@ -29,8 +29,8 @@ pub fn scan_projects(home_directory: &str) -> Result<Vec<ProjectInfo>, String> {
     let mut registry = GeminiProjectRegistry::load()
         .map_err(|e| format!("Failed to load project registry: {}", e))?;
 
-    let entries = fs::read_dir(&tmp_path)
-        .map_err(|e| format!("Failed to read tmp directory: {}", e))?;
+    let entries =
+        fs::read_dir(&tmp_path).map_err(|e| format!("Failed to read tmp directory: {}", e))?;
 
     let mut projects = Vec::new();
 
@@ -65,7 +65,10 @@ pub fn scan_projects(home_directory: &str) -> Result<Vec<ProjectInfo>, String> {
                     name
                 }
                 Err(e) => {
-                    eprintln!("Warning: Could not resolve project info for {}: {}", hash, e);
+                    eprintln!(
+                        "Warning: Could not resolve project info for {}: {}",
+                        hash, e
+                    );
                     // Fallback to shortened hash for name
                     // Don't add to registry since we don't have real CWD
                     format!("gemini-{}", &hash[..8])
@@ -111,8 +114,8 @@ fn resolve_project_info(project_path: &Path, hash: &str) -> Result<(String, Stri
     }
 
     // Try to read the first session file
-    let entries = fs::read_dir(&chats_path)
-        .map_err(|e| format!("Failed to read chats directory: {}", e))?;
+    let entries =
+        fs::read_dir(&chats_path).map_err(|e| format!("Failed to read chats directory: {}", e))?;
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -146,7 +149,6 @@ fn resolve_project_info(project_path: &Path, hash: &str) -> Result<(String, Stri
     Err("Could not determine project info from sessions".to_string())
 }
 
-
 /// Get project name from working directory path
 fn get_project_name_from_path(workdir: &str) -> Result<String, String> {
     Path::new(workdir)
@@ -177,7 +179,9 @@ pub fn extract_candidate_paths_from_content(content: &str) -> Vec<String> {
             for part in parts {
                 // Unix paths or Windows paths
                 if part.starts_with('/')
-                    || (part.len() > 3 && part.chars().nth(1) == Some(':') && part.chars().nth(2) == Some('\\'))
+                    || (part.len() > 3
+                        && part.chars().nth(1) == Some(':')
+                        && part.chars().nth(2) == Some('\\'))
                 {
                     paths.push(part.to_string());
                 }

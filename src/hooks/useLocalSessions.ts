@@ -1,7 +1,7 @@
 import type { AgentSession } from '@guideai-dev/types'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { invoke } from '@tauri-apps/api/core'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 interface SessionWithMetrics extends AgentSession {
   filePath: string | null
@@ -321,11 +321,7 @@ export function useLocalSession(sessionId: string) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    loadSession()
-  }, [sessionId])
-
-  const loadSession = async () => {
+  const loadSession = useCallback(async () => {
     setLoading(true)
     setError(null)
 
@@ -449,7 +445,11 @@ export function useLocalSession(sessionId: string) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [sessionId])
+
+  useEffect(() => {
+    loadSession()
+  }, [loadSession])
 
   return {
     session,

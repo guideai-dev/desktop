@@ -35,10 +35,7 @@ pub enum SessionEventPayload {
     },
 
     /// Session processing failed
-    Failed {
-        session_id: String,
-        reason: String,
-    },
+    Failed { session_id: String, reason: String },
 }
 
 impl SessionEvent {

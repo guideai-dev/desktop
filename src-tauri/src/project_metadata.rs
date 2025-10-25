@@ -1,7 +1,7 @@
+use git2::Repository;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use git2::Repository;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectMetadata {

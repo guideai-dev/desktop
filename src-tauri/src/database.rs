@@ -25,8 +25,8 @@ lazy_static! {
 
 /// Helper function to get database connection with retry logic
 /// Retries up to 3 times with 100ms delay between attempts to handle temporary lock contention
-fn get_db_connection(
-) -> Result<std::sync::MutexGuard<'static, Option<Connection>>, rusqlite::Error> {
+fn get_db_connection() -> Result<std::sync::MutexGuard<'static, Option<Connection>>, rusqlite::Error>
+{
     const MAX_RETRIES: u32 = 3;
     const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
 
@@ -178,7 +178,10 @@ pub fn insert_session(
                 let _ = app_handle.emit("session-completed", session_id);
                 log_info(
                     "database",
-                    &format!("✓ Session {} completed on insert, emitted event for metrics processing", session_id),
+                    &format!(
+                        "✓ Session {} completed on insert, emitted event for metrics processing",
+                        session_id
+                    ),
                 )
                 .unwrap_or_default();
             }
@@ -193,7 +196,7 @@ pub fn insert_session(
 #[allow(clippy::too_many_arguments)]
 pub fn update_session(
     session_id: &str,
-    _file_name: &str,  // Kept for API compatibility but not used in query
+    _file_name: &str, // Kept for API compatibility but not used in query
     file_size: u64,
     file_hash: Option<&str>,
     session_start_time: Option<DateTime<Utc>>,
@@ -240,8 +243,8 @@ pub fn update_session(
         // Use new commit as first_commit_hash if existing is null and we have a commit, otherwise keep existing
         let final_first_commit = match (existing_first_commit, latest_commit_hash) {
             (None, Some(new_commit)) => Some(new_commit.to_string()), // Database has null, use new value
-            (Some(existing), _) => Some(existing),                    // Keep existing non-null value
-            (None, None) => None,                                     // Both null, stay null
+            (Some(existing), _) => Some(existing), // Keep existing non-null value
+            (None, None) => None,                  // Both null, stay null
         };
 
         // Always update latest_commit_hash if provided (this is expected to change)
@@ -251,7 +254,8 @@ pub fn update_session(
         };
 
         // Calculate duration if we have both start and end times
-        let duration_ms = if let (Some(start), Some(end)) = (final_start_time_ms, session_end_time) {
+        let duration_ms = if let (Some(start), Some(end)) = (final_start_time_ms, session_end_time)
+        {
             Some((end.timestamp_millis() - start).max(0))
         } else {
             None
@@ -315,7 +319,10 @@ pub fn update_session(
                     let _ = app_handle.emit("session-completed", session_id);
                     log_info(
                         "database",
-                        &format!("✓ Session {} completed, emitted event for metrics processing", session_id),
+                        &format!(
+                            "✓ Session {} completed, emitted event for metrics processing",
+                            session_id
+                        ),
                     )
                     .unwrap_or_default();
                 }
@@ -600,8 +607,11 @@ pub fn insert_or_get_project(
                 params![id, name, github_repo, cwd, project_type, now, now],
             )?;
 
-            log_info("database", &format!("✓ Inserted project {} ({})", name, &id))
-                .unwrap_or_default();
+            log_info(
+                "database",
+                &format!("✓ Inserted project {} ({})", name, &id),
+            )
+            .unwrap_or_default();
 
             // Emit event to frontend
             if let Ok(app_handle_guard) = APP_HANDLE.lock() {
@@ -1048,10 +1058,10 @@ pub struct SessionMetrics {
     pub context_window_size: Option<i64>,
     pub context_utilization_percent: Option<f64>,
     pub compact_event_count: Option<i64>,
-    pub compact_event_steps: Option<String>,       // JSON array
+    pub compact_event_steps: Option<String>, // JSON array
     pub messages_until_first_compact: Option<i64>,
     pub avg_tokens_per_message: Option<f64>,
-    pub context_improvement_tips: Option<String>,  // JSON array
+    pub context_improvement_tips: Option<String>, // JSON array
 }
 
 /// Clear all failed sessions from the database
@@ -1103,7 +1113,11 @@ pub fn remove_session_by_id(session_id: &str) -> Result<usize> {
     )?;
 
     if rows_affected > 0 {
-        log_info("database", &format!("✓ Removed session {} from database", session_id)).unwrap_or_default();
+        log_info(
+            "database",
+            &format!("✓ Removed session {} from database", session_id),
+        )
+        .unwrap_or_default();
     }
 
     Ok(rows_affected)

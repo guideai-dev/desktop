@@ -6,8 +6,8 @@ use crate::config::GuideAIConfig;
 use crate::database::{get_full_session_by_id, get_session_metrics, get_session_rating};
 use crate::logging::log_info;
 use crate::project_metadata::extract_project_metadata;
-use crate::upload_queue::types::UploadItem;
 use crate::upload_queue::compression::compress_file_content;
+use crate::upload_queue::types::UploadItem;
 use chrono::DateTime;
 use serde_json::Value;
 
@@ -65,7 +65,10 @@ pub async fn upload_v2(
     config: GuideAIConfig,
 ) -> Result<(), String> {
     let api_key = config.api_key.clone().ok_or("No API key configured")?;
-    let server_url = config.server_url.clone().ok_or("No server URL configured")?;
+    let server_url = config
+        .server_url
+        .clone()
+        .ok_or("No server URL configured")?;
 
     // Check if server already has this file
     let needs_upload = check_file_hash(session_id, file_hash, &server_url, &api_key).await?;
@@ -76,8 +79,7 @@ pub async fn upload_v2(
         let file_content = if let Some(ref content) = item.content {
             content.as_bytes().to_vec()
         } else {
-            std::fs::read(&item.file_path)
-                .map_err(|e| format!("Failed to read file: {}", e))?
+            std::fs::read(&item.file_path).map_err(|e| format!("Failed to read file: {}", e))?
         };
 
         // Compress the file content
@@ -89,7 +91,10 @@ pub async fn upload_v2(
     } else {
         log_info(
             "upload-queue",
-            &format!("⚡ File hash matches, skipping content upload for {}", session_id),
+            &format!(
+                "⚡ File hash matches, skipping content upload for {}",
+                session_id
+            ),
         )
         .unwrap_or_default();
         None
@@ -188,9 +193,8 @@ pub async fn upload_v2(
 
         // Helper to parse comma-separated step numbers into array of integers
         let parse_compact_steps = |s: &Option<String>| -> Option<Vec<i64>> {
-            s.as_ref().and_then(|str_val| {
-                serde_json::from_str::<Vec<i64>>(str_val).ok()
-            })
+            s.as_ref()
+                .and_then(|str_val| serde_json::from_str::<Vec<i64>>(str_val).ok())
         };
 
         upload_request["metrics"] = serde_json::json!({

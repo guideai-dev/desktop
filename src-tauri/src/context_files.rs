@@ -6,11 +6,11 @@ use std::path::Path;
 /// Context file information returned to the frontend
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContextFile {
-    pub file_name: String,      // e.g., "CLAUDE.md"
-    pub file_path: String,       // Absolute path
-    pub relative_path: String,   // Path relative to cwd
-    pub content: String,         // File contents
-    pub size: u64,              // File size in bytes
+    pub file_name: String,     // e.g., "CLAUDE.md"
+    pub file_path: String,     // Absolute path
+    pub relative_path: String, // Path relative to cwd
+    pub content: String,       // File contents
+    pub size: u64,             // File size in bytes
 }
 
 /// Context file names to search for (case-insensitive)
@@ -33,9 +33,9 @@ pub fn scan_context_files(cwd: &str) -> Result<Vec<ContextFile>, String> {
 
     // Use ignore crate's WalkBuilder to respect .gitignore
     let walker = WalkBuilder::new(cwd_path)
-        .standard_filters(true)  // Enables .gitignore, .ignore, .git/info/exclude
-        .hidden(false)           // Include hidden files (some projects put context in .github/)
-        .follow_links(false)     // Don't follow symlinks
+        .standard_filters(true) // Enables .gitignore, .ignore, .git/info/exclude
+        .hidden(false) // Include hidden files (some projects put context in .github/)
+        .follow_links(false) // Don't follow symlinks
         .build();
 
     for result in walker {
@@ -82,12 +82,12 @@ pub fn scan_context_files(cwd: &str) -> Result<Vec<ContextFile>, String> {
 /// Read a context file and return its information
 fn read_context_file(path: &Path, cwd: &Path) -> Result<ContextFile, String> {
     // Read file contents
-    let content = fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read file {:?}: {}", path, e))?;
+    let content =
+        fs::read_to_string(path).map_err(|e| format!("Failed to read file {:?}: {}", path, e))?;
 
     // Get file metadata
-    let metadata = fs::metadata(path)
-        .map_err(|e| format!("Failed to get metadata for {:?}: {}", path, e))?;
+    let metadata =
+        fs::metadata(path).map_err(|e| format!("Failed to get metadata for {:?}: {}", path, e))?;
 
     // Calculate relative path
     let relative_path = path

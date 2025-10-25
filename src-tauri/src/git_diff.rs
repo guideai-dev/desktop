@@ -62,7 +62,8 @@ pub fn get_commit_diff(
         .map_err(|e| format!("Failed to peel first commit: {}", e))?;
 
     // Determine if we should include uncommitted changes
-    let include_uncommitted = is_active || (first_commit_hash == latest_commit_hash && session_end_time.is_some());
+    let include_uncommitted =
+        is_active || (first_commit_hash == latest_commit_hash && session_end_time.is_some());
 
     // If commits are the same, we're looking at changes in the repo during the session period
     // Even if no commits were made, we want to show what changed in the branch during that time
@@ -76,7 +77,8 @@ pub fn get_commit_diff(
         // Either way, we show the diff from the session's starting point to the current state
         if is_active {
             // Active: show working directory changes
-            let diff = repo.diff_tree_to_workdir_with_index(Some(&first_tree), Some(&mut diff_opts))
+            let diff = repo
+                .diff_tree_to_workdir_with_index(Some(&first_tree), Some(&mut diff_opts))
                 .map_err(|e| format!("Failed to create diff to working directory: {}", e))?;
 
             let result = parse_diff(&repo, diff, Some(&first_tree), None, cwd);
@@ -84,7 +86,8 @@ pub fn get_commit_diff(
         } else {
             // Inactive: show diff from first_commit to current working directory
             // Even though the session ended, we want to show what changes exist that were made during that time
-            let diff = repo.diff_tree_to_workdir_with_index(Some(&first_tree), Some(&mut diff_opts))
+            let diff = repo
+                .diff_tree_to_workdir_with_index(Some(&first_tree), Some(&mut diff_opts))
                 .map_err(|e| format!("Failed to create tree to workdir diff: {}", e))?;
 
             let result = parse_diff(&repo, diff, Some(&first_tree), None, cwd);
@@ -130,7 +133,17 @@ pub fn get_commit_diff(
     }
 
     // Parse diff into FileDiff structures
-    parse_diff(&repo, diff, Some(&first_tree), if include_uncommitted { None } else { Some(&latest_tree) }, cwd)
+    parse_diff(
+        &repo,
+        diff,
+        Some(&first_tree),
+        if include_uncommitted {
+            None
+        } else {
+            Some(&latest_tree)
+        },
+        cwd,
+    )
 }
 
 /// Parse git2 Diff into structured FileDiff objects
@@ -150,7 +163,12 @@ fn parse_diff(
     // First, handle untracked files separately (they won't appear in print output)
     for delta in diff.deltas() {
         if delta.status() == git2::Delta::Untracked {
-            let new_path = delta.new_file().path().unwrap_or(Path::new("")).to_string_lossy().to_string();
+            let new_path = delta
+                .new_file()
+                .path()
+                .unwrap_or(Path::new(""))
+                .to_string_lossy()
+                .to_string();
 
             // Read the entire file content from working directory
             let file_content = get_file_content_from_workdir(cwd, &new_path).ok();
@@ -158,7 +176,8 @@ fn parse_diff(
             // Create hunks that show the entire file as added
             let mut hunk_content = String::new();
             hunk_content.push_str(&format!("Index: {}\n", new_path));
-            hunk_content.push_str("===================================================================\n");
+            hunk_content
+                .push_str("===================================================================\n");
             hunk_content.push_str("--- /dev/null\t\n");
             hunk_content.push_str(&format!("+++ {}\t\n", new_path));
 
@@ -183,7 +202,10 @@ fn parse_diff(
                 language: detect_language(&new_path),
                 hunks: vec![hunk_content],
                 stats: DiffStats {
-                    additions: file_content.as_ref().map(|c| c.lines().count() as u32).unwrap_or(0),
+                    additions: file_content
+                        .as_ref()
+                        .map(|c| c.lines().count() as u32)
+                        .unwrap_or(0),
                     deletions: 0,
                 },
                 is_binary: delta.new_file().is_binary(),
@@ -195,12 +217,21 @@ fn parse_diff(
 
     // Print diff and collect output
     diff.print(DiffFormat::Patch, |delta, hunk, line| {
-        let old_path = delta.old_file().path().unwrap_or(Path::new("")).to_string_lossy().to_string();
-        let new_path = delta.new_file().path().unwrap_or(Path::new("")).to_string_lossy().to_string();
+        let old_path = delta
+            .old_file()
+            .path()
+            .unwrap_or(Path::new(""))
+            .to_string_lossy()
+            .to_string();
+        let new_path = delta
+            .new_file()
+            .path()
+            .unwrap_or(Path::new(""))
+            .to_string_lossy()
+            .to_string();
 
         // Detect file change
-        if current_file.is_none() ||
-           current_file.as_ref().unwrap().new_path != new_path {
+        if current_file.is_none() || current_file.as_ref().unwrap().new_path != new_path {
             // Save previous file if exists
             if let Some(mut file) = current_file.take() {
                 if !current_file_content.is_empty() {
@@ -227,7 +258,10 @@ fn parse_diff(
                 change_type: change_type.to_string(),
                 language: detect_language(&new_path),
                 hunks: Vec::new(),
-                stats: DiffStats { additions: 0, deletions: 0 },
+                stats: DiffStats {
+                    additions: 0,
+                    deletions: 0,
+                },
                 is_binary: delta.new_file().is_binary(),
                 old_content: None,
                 new_content: None,
@@ -240,10 +274,15 @@ fn parse_diff(
         if !file_headers_added {
             // Add Index header
             current_file_content.push_str(&format!("Index: {}\n", new_path));
-            current_file_content.push_str("===================================================================\n");
+            current_file_content
+                .push_str("===================================================================\n");
             // Add file headers with tabs (like the library expects)
             // Use /dev/null for added files (when old_path is empty)
-            let old_path_display = if old_path.is_empty() { "/dev/null" } else { &old_path };
+            let old_path_display = if old_path.is_empty() {
+                "/dev/null"
+            } else {
+                &old_path
+            };
             current_file_content.push_str(&format!("--- {}\t\n", old_path_display));
             current_file_content.push_str(&format!("+++ {}\t\n", new_path));
             file_headers_added = true;
@@ -313,7 +352,8 @@ fn parse_diff(
         // Get old file content
         if !file_diff.old_path.is_empty() && file_diff.change_type != "added" {
             if let Some(tree) = old_tree {
-                file_diff.old_content = get_file_content_from_tree(repo, tree, &file_diff.old_path).ok();
+                file_diff.old_content =
+                    get_file_content_from_tree(repo, tree, &file_diff.old_path).ok();
             }
         }
 
@@ -321,10 +361,12 @@ fn parse_diff(
         if !file_diff.new_path.is_empty() && file_diff.change_type != "deleted" {
             if let Some(tree) = new_tree {
                 // From tree (committed)
-                file_diff.new_content = get_file_content_from_tree(repo, tree, &file_diff.new_path).ok();
+                file_diff.new_content =
+                    get_file_content_from_tree(repo, tree, &file_diff.new_path).ok();
             } else {
                 // From working directory (uncommitted changes)
-                file_diff.new_content = get_file_content_from_workdir(cwd, &file_diff.new_path).ok();
+                file_diff.new_content =
+                    get_file_content_from_workdir(cwd, &file_diff.new_path).ok();
             }
         }
     }
@@ -333,7 +375,11 @@ fn parse_diff(
 }
 
 /// Get file content from a git tree
-fn get_file_content_from_tree(repo: &Repository, tree: &git2::Tree, path: &str) -> Result<String, String> {
+fn get_file_content_from_tree(
+    repo: &Repository,
+    tree: &git2::Tree,
+    path: &str,
+) -> Result<String, String> {
     let entry = tree
         .get_path(Path::new(path))
         .map_err(|e| format!("File not found in tree: {}", e))?;

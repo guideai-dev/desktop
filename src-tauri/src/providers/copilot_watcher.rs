@@ -1,4 +1,5 @@
 use crate::config::load_provider_config;
+use crate::events::{EventBus, SessionEventPayload};
 use crate::logging::{log_debug, log_error, log_info};
 use crate::providers::common::{
     get_file_size, SessionStateManager, WatcherStatus, EVENT_TIMEOUT, FILE_WATCH_POLL_INTERVAL,
@@ -8,7 +9,6 @@ use crate::providers::copilot_parser::{
     detect_project_and_cwd_from_timeline, load_copilot_config, CopilotSession,
 };
 use crate::providers::copilot_snapshot::SnapshotManager;
-use crate::events::{EventBus, SessionEventPayload};
 use crate::upload_queue::UploadQueue;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use shellexpand::tilde;
@@ -112,7 +112,13 @@ impl CopilotWatcher {
 
         // Start background thread to handle file events
         let thread_handle = thread::spawn(move || {
-            Self::file_event_processor(rx, session_dir, upload_queue_clone, event_bus_clone, is_running_clone);
+            Self::file_event_processor(
+                rx,
+                session_dir,
+                upload_queue_clone,
+                event_bus_clone,
+                is_running_clone,
+            );
         });
 
         Ok(CopilotWatcher {
@@ -186,7 +192,11 @@ impl CopilotWatcher {
                         ) {
                             Ok(Some(snapshot_event)) => {
                                 // Process the snapshot event (not the source file event!)
-                                Self::process_snapshot_event(snapshot_event, &mut snapshot_states, &event_bus);
+                                Self::process_snapshot_event(
+                                    snapshot_event,
+                                    &mut snapshot_states,
+                                    &event_bus,
+                                );
                             }
                             Ok(None) => {
                                 // No new entries, skip
@@ -472,10 +482,8 @@ impl CopilotWatcher {
         let is_new_session = !snapshot_states.contains(&snapshot_event.session_id);
 
         // Get or create session state
-        let state = snapshot_states.get_or_create(
-            &snapshot_event.session_id,
-            snapshot_event.file_size,
-        );
+        let state =
+            snapshot_states.get_or_create(&snapshot_event.session_id, snapshot_event.file_size);
         let should_log = state.should_log(
             snapshot_event.file_size,
             MIN_SIZE_CHANGE_BYTES,

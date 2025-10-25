@@ -177,9 +177,9 @@ impl OpenCodeWatcher {
         fs::create_dir_all(&cache_dir)?;
 
         // Parse session to create virtual JSONL
-        let parsed_session = parser.parse_session(session_id).map_err(|e| {
-            format!("Failed to parse OpenCode session {}: {}", session_id, e)
-        })?;
+        let parsed_session = parser
+            .parse_session(session_id)
+            .map_err(|e| format!("Failed to parse OpenCode session {}: {}", session_id, e))?;
 
         // Write virtual JSONL to cache
         let jsonl_path = cache_dir.join(format!("{}.jsonl", session_id));
@@ -234,7 +234,8 @@ impl OpenCodeWatcher {
         event_bus: EventBus,
         is_running: Arc<Mutex<bool>>,
     ) {
-        let mut session_states: std::collections::HashMap<String, OpenCodeSessionState> = std::collections::HashMap::new();
+        let mut session_states: std::collections::HashMap<String, OpenCodeSessionState> =
+            std::collections::HashMap::new();
 
         loop {
             // Check if we should continue running
@@ -249,12 +250,9 @@ impl OpenCodeWatcher {
             // Process file system events with short timeout for debouncing
             match rx.recv_timeout(Duration::from_millis(500)) {
                 Ok(Ok(event)) => {
-                    if let Some(session_event) = Self::process_file_event(
-                        &event,
-                        &storage_path,
-                        &parser,
-                        &projects_to_watch,
-                    ) {
+                    if let Some(session_event) =
+                        Self::process_file_event(&event, &storage_path, &parser, &projects_to_watch)
+                    {
                         // PHASE 1: WATCH - Just mark session as needing aggregation
                         Self::mark_session_for_aggregation(&mut session_states, &session_event);
                     }

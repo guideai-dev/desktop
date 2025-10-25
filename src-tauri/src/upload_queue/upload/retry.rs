@@ -3,8 +3,8 @@
 //! Handles retry strategy, error classification (client/server/network),
 //! and backoff calculation. Extracted from processor.rs in Phase 5.
 
-use chrono::Utc;
 use super::super::types::UploadItem;
+use chrono::Utc;
 
 /// Error classification for determining retry behavior
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,32 +137,17 @@ mod tests {
         assert_eq!(classify_error("status 500"), ErrorType::Server);
         assert_eq!(classify_error("status 502"), ErrorType::Server);
         assert_eq!(classify_error("status 503"), ErrorType::Server);
-        assert_eq!(
-            classify_error("Internal Server Error"),
-            ErrorType::Server
-        );
-        assert_eq!(
-            classify_error("Service Unavailable"),
-            ErrorType::Server
-        );
+        assert_eq!(classify_error("Internal Server Error"), ErrorType::Server);
+        assert_eq!(classify_error("Service Unavailable"), ErrorType::Server);
         assert_eq!(classify_error("Gateway Timeout"), ErrorType::Server);
     }
 
     #[test]
     fn test_classify_network_errors() {
-        assert_eq!(
-            classify_error("Connection refused"),
-            ErrorType::Network
-        );
+        assert_eq!(classify_error("Connection refused"), ErrorType::Network);
         assert_eq!(classify_error("Timeout"), ErrorType::Network);
-        assert_eq!(
-            classify_error("DNS resolution failed"),
-            ErrorType::Network
-        );
-        assert_eq!(
-            classify_error("Unknown error"),
-            ErrorType::Network
-        );
+        assert_eq!(classify_error("DNS resolution failed"), ErrorType::Network);
+        assert_eq!(classify_error("Unknown error"), ErrorType::Network);
     }
 
     #[test]

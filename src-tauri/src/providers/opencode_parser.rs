@@ -781,7 +781,8 @@ mod tests {
         .unwrap();
 
         // Create session
-        let session = r#"{"id":"test_session","projectID":"test_project","time":{"created":1000000000000}}"#;
+        let session =
+            r#"{"id":"test_session","projectID":"test_project","time":{"created":1000000000000}}"#;
         fs::write(
             storage_path
                 .join("session")
@@ -832,13 +833,19 @@ mod tests {
         // Create message file in correct location: message/{sessionId}/{messageId}.json
         let message = r#"{"id":"msg_456","role":"user","sessionID":"ses_123","time":{"created":1000000000000}}"#;
         fs::write(
-            storage_path.join("message").join("ses_123").join("msg_456.json"),
+            storage_path
+                .join("message")
+                .join("ses_123")
+                .join("msg_456.json"),
             message,
         )
         .unwrap();
 
         let parser = OpenCodeParser::new(storage_path.clone());
-        let part_path = storage_path.join("part").join("msg_456").join("part_789.json");
+        let part_path = storage_path
+            .join("part")
+            .join("msg_456")
+            .join("part_789.json");
 
         let session_id = parser.get_session_for_part(&part_path);
 

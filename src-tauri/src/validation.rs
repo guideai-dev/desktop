@@ -10,9 +10,9 @@ fn get_allowed_directories() -> Result<Vec<PathBuf>, GuideAIError> {
         .ok_or_else(|| GuideAIError::Validation("Could not find home directory".to_string()))?;
 
     let mut allowed = vec![
-        home_dir.join(".guideai"),        // GuideAI config and logs
-        home_dir.join(".claude"),          // Claude Code sessions
-        home_dir.join(".codex"),           // Codex sessions
+        home_dir.join(".guideai"), // GuideAI config and logs
+        home_dir.join(".claude"),  // Claude Code sessions
+        home_dir.join(".codex"),   // Codex sessions
     ];
 
     // OpenCode path (platform-specific)
@@ -123,10 +123,7 @@ mod tests {
         let path = PathBuf::from("../etc/passwd");
         let result = validate_file_path(&path);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("'..' component"));
+        assert!(result.unwrap_err().to_string().contains("'..' component"));
     }
 
     #[test]

@@ -69,7 +69,13 @@ export function useLocalSessionContent(
     error,
   } = useQuery({
     queryKey: ['session-content', sessionId, provider, filePath],
-    queryFn: () => fetchSessionContent(sessionId!, provider!, filePath!),
+    queryFn: () => {
+      // Type guard: enabled ensures these are defined
+      if (!sessionId || !provider || !filePath) {
+        throw new Error('Missing required parameters')
+      }
+      return fetchSessionContent(sessionId, provider, filePath)
+    },
     enabled: !!(sessionId && provider && filePath),
   })
 

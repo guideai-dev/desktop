@@ -1,12 +1,10 @@
-import { invoke } from '@tauri-apps/api/core'
 import { useQueryClient } from '@tanstack/react-query'
+import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { formatDistanceToNow } from 'date-fns'
 import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
-import { useRescanProgress } from '../../hooks/useRescanProgress'
-import { useToast } from '../../hooks/useToast'
 import {
   useClaudeWatcherStatus,
   useStartClaudeWatcher,
@@ -33,11 +31,13 @@ import {
   useSaveProviderConfig,
   useScanProjects,
 } from '../../hooks/useProviderConfig'
+import { useRescanProgress } from '../../hooks/useRescanProgress'
 import { useSetupInstructions } from '../../hooks/useSetupInstructions'
+import { useToast } from '../../hooks/useToast'
 import type { CodingAgent, ProviderConfig } from '../../types/providers'
 import ConfirmDialog from '../ConfirmDialog'
-import ProviderIcon from '../icons/ProviderIcon'
 import RescanProgress from '../RescanProgress'
+import ProviderIcon from '../icons/ProviderIcon'
 import SetupInstructions from './SetupInstructions'
 
 interface AgentConfigProps {
@@ -168,7 +168,7 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
         homeDirectory: config.homeDirectory || agent.defaultHomeDirectory,
       })
     }
-  }, [config])
+  }, [config, agent.defaultHomeDirectory])
 
   // Handle hash-based navigation for sync-mode highlighting
   useEffect(() => {
@@ -776,7 +776,12 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
                       </>
                     ) : (
                       <>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
                           <path
                             strokeLinecap="round"
                             strokeLinejoin="round"
