@@ -283,8 +283,8 @@ fn extract_cwd_from_file(provider_id: &str, file_path: &PathBuf) -> Option<Strin
 
     // Different providers store CWD differently
     match provider_id {
-        "claude-code" | "codex" => {
-            // Claude Code and Codex (canonical format): Check for direct cwd field
+        "claude-code" | "codex" | "gemini-code" | "github-copilot" => {
+            // All these providers now use canonical format with cwd at top level
             for line in lines.iter().take(50) {
                 if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
                     // Canonical format has cwd at top level
@@ -294,31 +294,9 @@ fn extract_cwd_from_file(provider_id: &str, file_path: &PathBuf) -> Option<Strin
                 }
             }
         }
-        "github-copilot" => {
-            // GitHub Copilot: Look for direct cwd field added by our snapshot manager
-            // Since we add cwd to every timeline entry, we only need to check the first 50 lines
-            for line in lines.iter().take(50) {
-                if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
-                    // Check for direct cwd field
-                    if let Some(cwd) = entry.get("cwd").and_then(|v| v.as_str()) {
-                        return Some(cwd.to_string());
-                    }
-                }
-            }
-        }
         "opencode" => {
             // OpenCode: Look for cwd field in virtual JSONL
             for line in lines {
-                if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
-                    if let Some(cwd) = entry.get("cwd").and_then(|v| v.as_str()) {
-                        return Some(cwd.to_string());
-                    }
-                }
-            }
-        }
-        "gemini-code" => {
-            // Gemini Code: Look for cwd field in JSONL (added during conversion)
-            for line in lines.iter().take(50) {
                 if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
                     if let Some(cwd) = entry.get("cwd").and_then(|v| v.as_str()) {
                         return Some(cwd.to_string());

@@ -7,6 +7,7 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+use crate::providers::copilot::converter::convert_timeline_entry_to_canonical;
 use crate::providers::copilot_parser::TimelineEntry;
 
 /// Status of a snapshot
@@ -192,7 +193,7 @@ impl SnapshotManager {
         self.snapshot_dir.join(format!("{}.jsonl", snapshot_id))
     }
 
-    /// Create a new snapshot file with full timeline
+    /// Create a new snapshot file with full timeline (in canonical format)
     pub fn create_snapshot_file(
         &self,
         snapshot_id: Uuid,
@@ -203,29 +204,25 @@ impl SnapshotManager {
         let file = File::create(&snapshot_path)?;
         let mut writer = BufWriter::new(file);
 
+        // Convert timeline to canonical format
+        // Note: snapshot_id is used as session_id for canonical messages
+        let session_id = snapshot_id.to_string();
+
         for entry in timeline {
-            // Flatten the timeline entry to JSONL format
-            let mut json_obj = serde_json::Map::new();
-
-            // Add timestamp if present
-            if let Some(ref ts) = entry.timestamp {
-                json_obj.insert("timestamp".to_string(), serde_json::json!(ts));
-            }
-
-            // Add cwd if provided
-            if let Some(cwd_path) = cwd {
-                json_obj.insert("cwd".to_string(), serde_json::json!(cwd_path));
-            }
-
-            // Add all other fields from the data
-            if let serde_json::Value::Object(data_map) = &entry.data {
-                for (key, value) in data_map {
-                    json_obj.insert(key.clone(), value.clone());
+            // Convert timeline entry to canonical message(s)
+            // Some entries (like tool_call_completed) produce 2 messages
+            match convert_timeline_entry_to_canonical(entry, &session_id, cwd) {
+                Ok(canonical_messages) => {
+                    for canonical_msg in canonical_messages {
+                        // Write each canonical message as a JSONL line
+                        writeln!(writer, "{}", serde_json::to_string(&canonical_msg)?)?;
+                    }
+                }
+                Err(e) => {
+                    // Log error but continue processing other entries
+                    eprintln!("Warning: Failed to convert timeline entry: {}", e);
                 }
             }
-
-            // Write as single JSON line
-            writeln!(writer, "{}", serde_json::to_string(&json_obj)?)?;
         }
 
         writer.flush()?;
