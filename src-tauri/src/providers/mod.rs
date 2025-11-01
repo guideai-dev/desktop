@@ -1,9 +1,10 @@
 use crate::config::ProjectInfo;
 use chrono::{DateTime, Utc};
 
+pub mod canonical; // Canonical format types and converter trait
 mod claude;
 mod claude_watcher;
-mod codex;
+pub mod codex; // Codex converter (public for canonical format migration)
 mod codex_watcher;
 pub mod common;
 mod copilot;
