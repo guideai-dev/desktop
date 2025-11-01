@@ -35,9 +35,10 @@ impl ToCanonical for GeminiMessage {
         };
 
         // Map Gemini tokens to canonical usage
+        // In Claude's model, thoughts and tool calls are part of output
         let usage = self.tokens.as_ref().map(|tokens| TokenUsage {
             input_tokens: Some(tokens.input),
-            output_tokens: Some(tokens.output),
+            output_tokens: Some(tokens.output + tokens.thoughts + tokens.tool),
             cache_creation_input_tokens: None,
             cache_read_input_tokens: Some(tokens.cached),
         });
@@ -266,8 +267,8 @@ mod tests {
                 output: 50,
                 cached: 75,
                 thoughts: 10,
-                tool: 0,
-                total: 160,
+                tool: 5,
+                total: 165,
             }),
             model: Some("gemini-2.0-flash-exp".to_string()),
         };
@@ -278,9 +279,11 @@ mod tests {
         assert_eq!(canonical.message.role, "assistant");
         assert_eq!(canonical.message.model, Some("gemini-2.0-flash-exp".to_string()));
 
+        // Verify complete token mapping
         let usage = canonical.message.usage.unwrap();
         assert_eq!(usage.input_tokens, Some(100));
-        assert_eq!(usage.output_tokens, Some(50));
+        // output_tokens should include output + thoughts + tool
+        assert_eq!(usage.output_tokens, Some(65)); // 50 + 10 + 5
         assert_eq!(usage.cache_read_input_tokens, Some(75));
     }
 
