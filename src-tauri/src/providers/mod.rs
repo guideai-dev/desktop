@@ -1,22 +1,24 @@
 use crate::config::ProjectInfo;
 use chrono::{DateTime, Utc};
 
+pub mod canonical; // Canonical format types and converter trait
 mod claude;
 mod claude_watcher;
-mod codex;
+pub mod codex; // Codex converter (public for canonical format migration)
 mod codex_watcher;
 pub mod common;
-mod copilot;
+pub mod copilot; // Copilot converter (public for canonical format migration)
 mod copilot_parser;
-mod copilot_snapshot;
+mod copilot_utils;
 mod copilot_watcher;
 pub mod db_helpers;
-pub mod gemini; // Made public for test access to CWD extraction functions
+pub mod gemini; // Gemini converter (public for canonical format migration)
 pub mod gemini_parser; // Made public for test access
 pub mod gemini_registry; // Registry for hash->CWD mappings
+pub mod gemini_utils; // Made public for test access to CWD extraction functions
 mod gemini_watcher;
-mod opencode;
-mod opencode_parser;
+pub mod opencode; // OpenCode converter (public for canonical format migration)
+pub mod opencode_parser; // Made public for converter access
 mod opencode_watcher;
 mod session_scanner;
 
@@ -30,10 +32,10 @@ pub use session_scanner::{scan_all_sessions, SessionInfo};
 pub fn scan_projects(provider_id: &str, home_directory: &str) -> Result<Vec<ProjectInfo>, String> {
     match provider_id {
         "claude-code" => claude::scan_projects(home_directory),
-        "github-copilot" => copilot::scan_projects(home_directory),
+        "github-copilot" => copilot_utils::scan_projects(home_directory),
         "opencode" => opencode::scan_projects(home_directory),
         "codex" => codex::scan_projects(home_directory),
-        "gemini-code" => gemini::scan_projects(home_directory),
+        "gemini-code" => gemini_utils::scan_projects(home_directory),
         other => Err(format!("Unsupported provider: {}", other)),
     }
 }

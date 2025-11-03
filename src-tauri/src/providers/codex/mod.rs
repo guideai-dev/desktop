@@ -9,6 +9,10 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use toml::Value;
 
+pub mod converter;
+
+pub use converter::CodexMessage;
+
 #[derive(Debug, Deserialize, Default)]
 struct CodexConfig {
     #[serde(default)]

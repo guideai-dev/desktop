@@ -268,81 +268,13 @@ fn extract_session_timing(_provider_id: &str, file_path: &PathBuf) -> TimingResu
 }
 
 /// Extract CWD from session file (provider-specific logic)
-fn extract_cwd_from_file(provider_id: &str, file_path: &PathBuf) -> Option<String> {
+fn extract_cwd_from_file(_provider_id: &str, file_path: &PathBuf) -> Option<String> {
     use std::fs;
 
+    // Read file content
     let content = fs::read_to_string(file_path).ok()?;
-    let lines: Vec<&str> = content
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .collect();
 
-    if lines.is_empty() {
-        return None;
-    }
-
-    // Different providers store CWD differently
-    match provider_id {
-        "claude-code" | "codex" => {
-            // Claude Code and Codex: Look for direct cwd field or payload.cwd field
-            for line in lines.iter().take(50) {
-                if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
-                    // Check for direct cwd field
-                    if let Some(cwd) = entry.get("cwd").and_then(|v| v.as_str()) {
-                        return Some(cwd.to_string());
-                    }
-                    // Check for payload.cwd field
-                    if let Some(cwd) = entry
-                        .get("payload")
-                        .and_then(|p| p.get("cwd"))
-                        .and_then(|v| v.as_str())
-                    {
-                        return Some(cwd.to_string());
-                    }
-                }
-            }
-        }
-        "github-copilot" => {
-            // GitHub Copilot: Look for direct cwd field added by our snapshot manager
-            // Since we add cwd to every timeline entry, we only need to check the first 50 lines
-            for line in lines.iter().take(50) {
-                if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
-                    // Check for direct cwd field
-                    if let Some(cwd) = entry.get("cwd").and_then(|v| v.as_str()) {
-                        return Some(cwd.to_string());
-                    }
-                }
-            }
-        }
-        "opencode" => {
-            // OpenCode: Look for cwd field in virtual JSONL
-            for line in lines {
-                if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
-                    if let Some(cwd) = entry.get("cwd").and_then(|v| v.as_str()) {
-                        return Some(cwd.to_string());
-                    }
-                }
-            }
-        }
-        "gemini-code" => {
-            // Gemini Code: Look for cwd field in JSONL (added during conversion)
-            for line in lines.iter().take(50) {
-                if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
-                    if let Some(cwd) = entry.get("cwd").and_then(|v| v.as_str()) {
-                        return Some(cwd.to_string());
-                    }
-                }
-            }
-        }
-        _ => {}
-    }
-
-    let _ = log_debug(
-        "database",
-        &format!(
-            "⚠ No CWD found in session file for provider {}",
-            provider_id
-        ),
-    );
-    None
+    // Use shared utility to extract CWD from canonical content
+    // (All providers now use canonical format with cwd at top level)
+    crate::providers::common::canonical_path::extract_cwd_from_canonical_content(&content)
 }

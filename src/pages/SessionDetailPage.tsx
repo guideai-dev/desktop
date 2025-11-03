@@ -14,9 +14,11 @@ import type { SessionRating } from '@guideai-dev/session-processing/ui'
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  BugAntIcon,
   ChartBarIcon,
   ChatBubbleLeftRightIcon,
   CheckCircleIcon,
+  ClipboardIcon,
   ClockIcon,
   Cog6ToothIcon,
   DocumentTextIcon,
@@ -27,6 +29,7 @@ import { listen } from '@tauri-apps/api/event'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { AiProcessingProgress } from '../components/AiProcessingProgress'
+import { JsonBlock } from '../components/JsonBlock'
 import { SessionChangesTab } from '../components/SessionChangesTab'
 import { SessionContextTab } from '../components/SessionContextTab'
 import ProviderIcon from '../components/icons/ProviderIcon'
@@ -189,7 +192,14 @@ export default function SessionDetailPage() {
     return saved === 'newest-first'
   })
   const [showSettings, setShowSettings] = useState(false)
-  const [showMetaMessages, setShowMetaMessages] = useState(false)
+  const [showMetaMessages, setShowMetaMessages] = useState(() => {
+    const saved = localStorage.getItem('transcript-show-meta')
+    return saved === 'true'
+  })
+  const [showThinkingBlocks, setShowThinkingBlocks] = useState(() => {
+    const saved = localStorage.getItem('transcript-show-thinking')
+    return saved !== 'false' // Default to true (shown)
+  })
   const [processingAi, setProcessingAi] = useState(false)
   const { processSessionWithAi, hasApiKey } = useAiProcessing()
   const { processSession: processMetrics } = useSessionProcessing()
@@ -242,7 +252,7 @@ export default function SessionDetailPage() {
 
   // Tab state - default to transcript
   const [activeTab, setActiveTab] = useState<
-    'phase-timeline' | 'transcript' | 'metrics' | 'changes' | 'context' | 'todos'
+    'phase-timeline' | 'transcript' | 'metrics' | 'changes' | 'context' | 'todos' | 'raw-jsonl'
   >('transcript')
 
   // Fetch session metadata with TanStack Query
@@ -380,6 +390,15 @@ export default function SessionDetailPage() {
   useEffect(() => {
     localStorage.setItem('sessionMessageOrder', reverseOrder ? 'newest-first' : 'oldest-first')
   }, [reverseOrder])
+
+  // Save transcript settings to localStorage
+  useEffect(() => {
+    localStorage.setItem('transcript-show-meta', showMetaMessages.toString())
+  }, [showMetaMessages])
+
+  useEffect(() => {
+    localStorage.setItem('transcript-show-thinking', showThinkingBlocks.toString())
+  }, [showThinkingBlocks])
 
   // Listen for sync events and invalidate queries
   useEffect(() => {
@@ -555,6 +574,53 @@ export default function SessionDetailPage() {
     return todos.length > 0
   }, [fileContent])
 
+  // Filter out meta messages, empty assistant messages, and thinking blocks (based on settings)
+  const filteredItems = useMemo(() => {
+    let filtered = timeline?.items || []
+    if (timeline) {
+      filtered = filtered.filter(item => {
+        if (isTimelineGroup(item)) {
+          // Keep group if messages pass all filter criteria
+          return item.messages.every(msg => {
+            const isMetaMessage = msg.originalMessage.type === 'meta'
+            const isEmptyAssistant =
+              msg.originalMessage.type === 'assistant_response' &&
+              typeof msg.originalMessage.content === 'string' &&
+              msg.originalMessage.content.trim() === ''
+            const isThinkingMessage = msg.originalMessage.metadata?.isThinking === true
+
+            // Filter out meta (if disabled), empty assistant messages (always), and thinking (if disabled)
+            return (
+              (!showMetaMessages ? !isMetaMessage : true) &&
+              !isEmptyAssistant &&
+              (!showThinkingBlocks ? !isThinkingMessage : true)
+            )
+          })
+        }
+        // For single messages
+        const isMetaMessage = item.originalMessage.type === 'meta'
+        const isEmptyAssistant =
+          item.originalMessage.type === 'assistant_response' &&
+          typeof item.originalMessage.content === 'string' &&
+          item.originalMessage.content.trim() === ''
+        const isThinkingMessage = item.originalMessage.metadata?.isThinking === true
+
+        // Filter out meta (if disabled), empty assistant messages (always), and thinking (if disabled)
+        return (
+          (!showMetaMessages ? !isMetaMessage : true) &&
+          !isEmptyAssistant &&
+          (!showThinkingBlocks ? !isThinkingMessage : true)
+        )
+      })
+    }
+    return filtered
+  }, [timeline, showMetaMessages, showThinkingBlocks])
+
+  // Apply reverse order if requested
+  const orderedItems = useMemo(() => {
+    return reverseOrder ? [...filteredItems].reverse() : filteredItems
+  }, [filteredItems, reverseOrder])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -587,37 +653,44 @@ export default function SessionDetailPage() {
   const messages = timeline?.items.filter(item => !isTimelineGroup(item)) || []
   const messageCount = messages.length
 
-  // Filter out meta messages and empty assistant messages
-  let filteredItems = timeline?.items || []
-  if (timeline) {
-    filteredItems = filteredItems.filter(item => {
+  // Calculate filter statistics
+  const totalParsedItems = timeline?.items?.length || 0
+  const displayedItems = filteredItems.length
+  const hiddenItems = totalParsedItems - displayedItems
+
+  // Calculate breakdown of hidden items
+  const metaMessageCount =
+    timeline?.items?.filter(item => {
       if (isTimelineGroup(item)) {
-        // Keep group if messages are not meta and not empty assistant responses
-        return item.messages.every(msg => {
-          const isMetaMessage = msg.originalMessage.type === 'meta'
-          const isEmptyAssistant =
+        return item.messages.some(msg => msg.originalMessage.type === 'meta')
+      }
+      return item.originalMessage.type === 'meta'
+    }).length || 0
+
+  const thinkingBlockCount =
+    timeline?.items?.filter(item => {
+      if (isTimelineGroup(item)) {
+        return item.messages.some(msg => msg.originalMessage.metadata?.isThinking === true)
+      }
+      return item.originalMessage.metadata?.isThinking === true
+    }).length || 0
+
+  const emptyAssistantCount =
+    timeline?.items?.filter(item => {
+      if (isTimelineGroup(item)) {
+        return item.messages.some(
+          msg =>
             msg.originalMessage.type === 'assistant_response' &&
             typeof msg.originalMessage.content === 'string' &&
             msg.originalMessage.content.trim() === ''
-
-          // Filter out meta (if disabled) and always filter empty assistant messages
-          return (!showMetaMessages ? !isMetaMessage : true) && !isEmptyAssistant
-        })
+        )
       }
-      // For single messages
-      const isMetaMessage = item.originalMessage.type === 'meta'
-      const isEmptyAssistant =
+      return (
         item.originalMessage.type === 'assistant_response' &&
         typeof item.originalMessage.content === 'string' &&
         item.originalMessage.content.trim() === ''
-
-      // Filter out meta (if disabled) and always filter empty assistant messages
-      return (!showMetaMessages ? !isMetaMessage : true) && !isEmptyAssistant
-    })
-  }
-
-  // Apply reverse order if requested
-  const orderedItems = reverseOrder ? [...filteredItems].reverse() : filteredItems
+      )
+    }).length || 0
 
   return (
     <div className="space-y-4">
@@ -714,133 +787,150 @@ export default function SessionDetailPage() {
       )}
 
       {/* Tabs Navigation with Controls */}
-      <div className="card bg-base-200 border border-base-300 border-b-2 rounded-lg overflow-hidden">
+      <div className="card bg-base-200 border border-base-300 border-b-2 rounded-lg">
         <div className="flex items-stretch">
           {/* Left: Tab Buttons */}
-          <div className="tabs tabs-bordered flex-1">
-            <button
-              className={`tab tab-lg gap-2 rounded-tl-lg ${
-                activeTab === 'transcript'
-                  ? 'tab-active bg-base-100 text-primary font-semibold border-b-2 border-primary'
-                  : 'hover:bg-base-300'
-              }`}
-              onClick={() => setActiveTab('transcript')}
-              title="Transcript"
-            >
-              <ChatBubbleLeftRightIcon className="w-5 h-5" />
-              <span className="hidden md:inline">Transcript</span>
-            </button>
-            {phaseAnalysis && (
+          <div className="tabs tabs-bordered flex-1 flex justify-between">
+            <div className="flex">
               <button
-                className={`tab tab-lg gap-2 ${
-                  activeTab === 'phase-timeline'
+                className={`tab tab-lg gap-2 rounded-tl-lg ${
+                  activeTab === 'transcript'
                     ? 'tab-active bg-base-100 text-primary font-semibold border-b-2 border-primary'
                     : 'hover:bg-base-300'
                 }`}
-                onClick={() => setActiveTab('phase-timeline')}
-                title="Timeline"
+                onClick={() => setActiveTab('transcript')}
+                title="Transcript"
               >
-                <ClockIcon className="w-5 h-5" />
-                <span className="hidden md:inline">Timeline</span>
+                <ChatBubbleLeftRightIcon className="w-5 h-5" />
+                <span className="hidden md:inline">Transcript</span>
               </button>
-            )}
-            <button
-              className={`tab tab-lg gap-2 ${
-                activeTab === 'metrics'
-                  ? 'tab-active bg-base-100 text-primary font-semibold border-b-2 border-primary'
-                  : 'hover:bg-base-300'
-              }`}
-              onClick={() => setActiveTab('metrics')}
-              title="Metrics"
-            >
-              <ChartBarIcon className="w-5 h-5" />
-              <span className="hidden md:inline">Metrics</span>
-            </button>
-            {session.cwd && (
-              <button
-                className={`tab tab-lg gap-2 ${
-                  activeTab === 'context'
-                    ? 'tab-active bg-base-100 text-primary font-semibold border-b-2 border-primary'
-                    : 'hover:bg-base-300'
-                }`}
-                onClick={() => setActiveTab('context')}
-                title="Context"
-              >
-                <DocumentTextIcon className="w-5 h-5" />
-                <span className="hidden md:inline">Context</span>
-                {activeTab !== 'context' && contextStats && contextStats.fileCount > 0 && (
-                  <span className="badge badge-info badge-sm">
-                    {formatSize(contextStats.totalSize)}
-                  </span>
-                )}
-              </button>
-            )}
-            {(metrics?.quality?.usedTodoTracking || hasTodos) && (
-              <button
-                className={`tab tab-lg gap-2 ${
-                  activeTab === 'todos'
-                    ? 'tab-active bg-base-100 text-primary font-semibold border-b-2 border-primary'
-                    : 'hover:bg-base-300'
-                }`}
-                onClick={() => setActiveTab('todos')}
-                title="Todos"
-              >
-                <CheckCircleIcon className="w-5 h-5" />
-                <span className="hidden md:inline">Todos</span>
-              </button>
-            )}
-            {session.cwd && session.firstCommitHash && (
-              <button
-                className={`tab tab-lg gap-2 ${
-                  activeTab === 'changes'
-                    ? 'tab-active bg-base-100 text-primary font-semibold border-b-2 border-primary'
-                    : hasPendingChanges
-                      ? 'hover:bg-base-300 animate-pulse'
+              {phaseAnalysis && (
+                <button
+                  className={`tab tab-lg gap-2 ${
+                    activeTab === 'phase-timeline'
+                      ? 'tab-active bg-base-100 text-primary font-semibold border-b-2 border-primary'
                       : 'hover:bg-base-300'
+                  }`}
+                  onClick={() => setActiveTab('phase-timeline')}
+                  title="Timeline"
+                >
+                  <ClockIcon className="w-5 h-5" />
+                  <span className="hidden md:inline">Timeline</span>
+                </button>
+              )}
+              <button
+                className={`tab tab-lg gap-2 ${
+                  activeTab === 'metrics'
+                    ? 'tab-active bg-base-100 text-primary font-semibold border-b-2 border-primary'
+                    : 'hover:bg-base-300'
                 }`}
-                onClick={() => setActiveTab('changes')}
-                title={hasPendingChanges ? 'New changes detected' : 'Changes'}
+                onClick={() => setActiveTab('metrics')}
+                title="Metrics"
               >
-                <svg
-                  className={`w-5 h-5 ${hasPendingChanges && activeTab !== 'changes' ? 'text-primary' : ''}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+                <ChartBarIcon className="w-5 h-5" />
+                <span className="hidden md:inline">Metrics</span>
+              </button>
+              {session.cwd && (
+                <button
+                  className={`tab tab-lg gap-2 ${
+                    activeTab === 'context'
+                      ? 'tab-active bg-base-100 text-primary font-semibold border-b-2 border-primary'
+                      : 'hover:bg-base-300'
+                  }`}
+                  onClick={() => setActiveTab('context')}
+                  title="Context"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
-                  />
-                </svg>
-                <span
-                  className={`hidden md:inline ${hasPendingChanges && activeTab !== 'changes' ? 'text-primary' : ''}`}
-                >
-                  Changes
-                </span>
-                {activeTab !== 'changes' &&
-                  gitDiffStats &&
-                  (gitDiffStats.additions > 0 || gitDiffStats.deletions > 0) && (
-                    <span className="flex items-center gap-1">
-                      {gitDiffStats.additions > 0 && (
-                        <span className="badge badge-success badge-sm">
-                          {gitDiffStats.additions}
-                        </span>
-                      )}
-                      {gitDiffStats.deletions > 0 && (
-                        <span className="badge badge-error badge-sm">{gitDiffStats.deletions}</span>
-                      )}
+                  <DocumentTextIcon className="w-5 h-5" />
+                  <span className="hidden md:inline">Context</span>
+                  {activeTab !== 'context' && contextStats && contextStats.fileCount > 0 && (
+                    <span className="badge badge-info badge-sm">
+                      {formatSize(contextStats.totalSize)}
                     </span>
                   )}
-                {hasPendingChanges && activeTab !== 'changes' && (
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+                </button>
+              )}
+              {(metrics?.quality?.usedTodoTracking || hasTodos) && (
+                <button
+                  className={`tab tab-lg gap-2 ${
+                    activeTab === 'todos'
+                      ? 'tab-active bg-base-100 text-primary font-semibold border-b-2 border-primary'
+                      : 'hover:bg-base-300'
+                  }`}
+                  onClick={() => setActiveTab('todos')}
+                  title="Todos"
+                >
+                  <CheckCircleIcon className="w-5 h-5" />
+                  <span className="hidden md:inline">Todos</span>
+                </button>
+              )}
+              {session.cwd && session.firstCommitHash && (
+                <button
+                  className={`tab tab-lg gap-2 ${
+                    activeTab === 'changes'
+                      ? 'tab-active bg-base-100 text-primary font-semibold border-b-2 border-primary'
+                      : hasPendingChanges
+                        ? 'hover:bg-base-300 animate-pulse'
+                        : 'hover:bg-base-300'
+                  }`}
+                  onClick={() => setActiveTab('changes')}
+                  title={hasPendingChanges ? 'New changes detected' : 'Changes'}
+                >
+                  <svg
+                    className={`w-5 h-5 ${hasPendingChanges && activeTab !== 'changes' ? 'text-primary' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+                    />
+                  </svg>
+                  <span
+                    className={`hidden md:inline ${hasPendingChanges && activeTab !== 'changes' ? 'text-primary' : ''}`}
+                  >
+                    Changes
                   </span>
-                )}
-              </button>
-            )}
+                  {activeTab !== 'changes' &&
+                    gitDiffStats &&
+                    (gitDiffStats.additions > 0 || gitDiffStats.deletions > 0) && (
+                      <span className="flex items-center gap-1">
+                        {gitDiffStats.additions > 0 && (
+                          <span className="badge badge-success badge-sm">
+                            {gitDiffStats.additions}
+                          </span>
+                        )}
+                        {gitDiffStats.deletions > 0 && (
+                          <span className="badge badge-error badge-sm">
+                            {gitDiffStats.deletions}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  {hasPendingChanges && activeTab !== 'changes' && (
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+                    </span>
+                  )}
+                </button>
+              )}
+            </div>
+
+            {/* Right-aligned Raw JSONL tab */}
+            <button
+              className={`tab tab-lg ${
+                activeTab === 'raw-jsonl'
+                  ? 'tab-active bg-base-100 text-primary font-semibold border-b-2 border-primary'
+                  : 'hover:bg-base-300'
+              }`}
+              onClick={() => setActiveTab('raw-jsonl')}
+              title="Raw JSONL"
+            >
+              <BugAntIcon className="w-5 h-5" />
+            </button>
           </div>
 
           {/* Right: Tab-specific Controls */}
@@ -872,21 +962,40 @@ export default function SessionDetailPage() {
                 {showSettings && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setShowSettings(false)} />
-                    <div className="absolute right-0 top-full mt-2 w-80 bg-base-100 border border-base-300 rounded-lg shadow-lg z-20 p-4">
-                      <h3 className="text-sm font-semibold mb-3">Timeline Settings</h3>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={showMetaMessages}
-                          onChange={e => setShowMetaMessages(e.target.checked)}
-                          className="checkbox checkbox-sm checkbox-primary"
-                        />
-                        <span className="text-sm">Show meta messages</span>
-                      </label>
-                      <p className="text-xs text-base-content/60 mt-2">
-                        Meta messages are internal system messages that provide context but are not
-                        part of the main conversation.
-                      </p>
+                    <div className="absolute right-0 top-full mt-2 w-80 bg-base-100 border border-base-300 rounded-lg shadow-lg z-20 p-4 space-y-4">
+                      <h3 className="text-sm font-semibold">Timeline Settings</h3>
+
+                      <div>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={showMetaMessages}
+                            onChange={e => setShowMetaMessages(e.target.checked)}
+                            className="checkbox checkbox-sm checkbox-primary"
+                          />
+                          <span className="text-sm">Show meta messages</span>
+                        </label>
+                        <p className="text-xs text-base-content/60 mt-1.5 ml-6">
+                          Internal system messages that provide context but are not part of the main
+                          conversation.
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={showThinkingBlocks}
+                            onChange={e => setShowThinkingBlocks(e.target.checked)}
+                            className="checkbox checkbox-sm checkbox-primary"
+                          />
+                          <span className="text-sm">Show thinking blocks</span>
+                        </label>
+                        <p className="text-xs text-base-content/60 mt-1.5 ml-6">
+                          AI reasoning and thought process blocks that explain how responses were
+                          formed.
+                        </p>
+                      </div>
                     </div>
                   </>
                 )}
@@ -895,6 +1004,71 @@ export default function SessionDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Filter Stats Banner */}
+      {activeTab === 'transcript' && hiddenItems > 0 && (
+        <div className="alert bg-base-200 border border-base-300">
+          <div className="flex-1">
+            <div className="flex items-center gap-3 text-sm">
+              <svg
+                className="w-5 h-5 text-info"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+              <div className="flex-1">
+                <div className="font-semibold text-base-content">
+                  Showing {displayedItems} of {totalParsedItems} items
+                </div>
+                <div className="text-xs text-base-content/70 mt-1">
+                  {hiddenItems} item{hiddenItems !== 1 ? 's' : ''} hidden
+                  {!showMetaMessages && metaMessageCount > 0 && (
+                    <span className="ml-1">
+                      ({metaMessageCount} meta message{metaMessageCount !== 1 ? 's' : ''})
+                    </span>
+                  )}
+                  {!showThinkingBlocks && thinkingBlockCount > 0 && (
+                    <span className="ml-1">
+                      ({thinkingBlockCount} thinking block{thinkingBlockCount !== 1 ? 's' : ''})
+                    </span>
+                  )}
+                  {emptyAssistantCount > 0 && (
+                    <span className="ml-1">
+                      ({emptyAssistantCount} empty assistant response
+                      {emptyAssistantCount !== 1 ? 's' : ''})
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                {!showMetaMessages && metaMessageCount > 0 && (
+                  <button
+                    onClick={() => setShowMetaMessages(true)}
+                    className="btn btn-xs btn-ghost gap-1"
+                  >
+                    Show Meta
+                  </button>
+                )}
+                {!showThinkingBlocks && thinkingBlockCount > 0 && (
+                  <button
+                    onClick={() => setShowThinkingBlocks(true)}
+                    className="btn btn-xs btn-ghost gap-1"
+                  >
+                    Show Thinking
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tab Content */}
       <div>
@@ -985,6 +1159,73 @@ export default function SessionDetailPage() {
             }}
             fileContent={fileContent}
           />
+        )}
+        {activeTab === 'raw-jsonl' && (
+          <div className="card bg-base-100 border border-base-300">
+            <div className="card-body">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold">Raw JSONL File Content</h3>
+                {fileContent && (
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(fileContent).then(
+                        () => toast.success('Copied to clipboard!'),
+                        () => toast.error('Failed to copy to clipboard')
+                      )
+                    }}
+                    className="btn btn-sm btn-ghost gap-2"
+                  >
+                    <ClipboardIcon className="w-4 h-4" />
+                    Copy All
+                  </button>
+                )}
+              </div>
+              {contentLoading ? (
+                <div className="flex items-center justify-center h-64">
+                  <span className="loading loading-spinner loading-lg" />
+                </div>
+              ) : contentError ? (
+                <div className="alert alert-error">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  <span>Failed to load session content: {contentError}</span>
+                </div>
+              ) : fileContent ? (
+                <JsonBlock content={fileContent} maxHeight="800px" />
+              ) : (
+                <div className="alert">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  <span>No file content available</span>
+                </div>
+              )}
+              <div className="mt-4 p-3 bg-info/10 rounded-lg text-xs text-info">
+                <p className="font-semibold mb-1">💡 About Raw JSONL Format:</p>
+                <ul className="list-disc list-inside space-y-1 text-info/80">
+                  <li>Each line is a separate JSON object representing a session event</li>
+                  <li>
+                    Messages are in canonical format after conversion from provider-specific formats
+                  </li>
+                  <li>Use this view to debug parsing issues or inspect raw session data</li>
+                  <li>
+                    Tip: Copy to clipboard and format with a JSON formatter for better readability
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

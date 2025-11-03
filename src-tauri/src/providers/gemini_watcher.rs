@@ -2,16 +2,15 @@ use crate::config::load_provider_config;
 use crate::events::{EventBus, SessionEventPayload};
 use crate::logging::{log_error, log_info, log_warn};
 use crate::providers::common::{
-    extract_session_id_from_filename, get_file_size, has_extension, should_skip_file,
-    SessionStateManager, WatcherStatus, EVENT_TIMEOUT, FILE_WATCH_POLL_INTERVAL,
+    extract_session_id_from_filename, get_file_size, has_extension,
+    should_skip_file, SessionStateManager, WatcherStatus, EVENT_TIMEOUT, FILE_WATCH_POLL_INTERVAL,
     MIN_SIZE_CHANGE_BYTES,
 };
-use crate::providers::gemini_parser::GeminiSession;
+use crate::providers::gemini::converter::convert_to_canonical_file;
 use crate::upload_queue::UploadQueue;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use shellexpand::tilde;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
@@ -196,8 +195,8 @@ impl GeminiWatcher {
             match rx.recv_timeout(EVENT_TIMEOUT) {
                 Ok(Ok(event)) => {
                     if let Some(file_event) = Self::process_file_event(&event, &tmp_path) {
-                        // Convert Gemini JSON to JSONL and cache it
-                        let jsonl_path = match Self::convert_to_jsonl_and_cache(
+                        // Convert Gemini JSON to canonical JSONL and cache it using shared function
+                        let canonical_path = match convert_to_canonical_file(
                             &file_event.path,
                             &file_event.session_id,
                         ) {
@@ -205,38 +204,38 @@ impl GeminiWatcher {
                             Err(e) => {
                                 if let Err(log_err) = log_error(
                                     PROVIDER_ID,
-                                    &format!("Failed to convert Gemini JSON to JSONL: {}", e),
+                                    &format!("Failed to convert Gemini session {} to canonical format: {}", file_event.session_id, e),
                                 ) {
                                     eprintln!("Logging error: {}", log_err);
                                 }
-                                continue; // Skip this event
+                                continue; // Skip this event - don't crash on conversion errors
                             }
                         };
 
-                        // Get file size of JSONL
-                        let jsonl_size = get_file_size(&jsonl_path).unwrap_or(0);
+                        // Get file size of canonical JSONL
+                        let canonical_size = get_file_size(&canonical_path).unwrap_or(0);
 
                         // Check if this is a new session (before get_or_create)
                         let is_new_session = !session_states.contains(&file_event.session_id);
 
                         // Get or create session state
                         let state =
-                            session_states.get_or_create(&file_event.session_id, jsonl_size);
+                            session_states.get_or_create(&file_event.session_id, canonical_size);
                         let should_log =
-                            state.should_log(jsonl_size, MIN_SIZE_CHANGE_BYTES, is_new_session);
+                            state.should_log(canonical_size, MIN_SIZE_CHANGE_BYTES, is_new_session);
 
-                        // Extract real project name from JSONL (CWD -> project name)
+                        // Extract real project name from canonical JSONL (CWD -> project name)
                         // Fallback to shortened hash if CWD extraction fails
-                        let project_name = Self::extract_project_name_from_jsonl(&jsonl_path)
+                        let project_name = Self::extract_project_name_from_jsonl(&canonical_path)
                             .unwrap_or_else(|| format!("gemini-{}", &file_event.project_hash[..8]));
 
-                        // Publish SessionChanged event to event bus
+                        // Publish SessionChanged event with CANONICAL path
                         // DatabaseEventHandler will call db_helpers which does smart insert-or-update
                         let payload = SessionEventPayload::SessionChanged {
                             session_id: file_event.session_id.clone(),
                             project_name, // Real project name extracted from CWD
-                            file_path: jsonl_path.clone(), // Use JSONL path instead of original JSON
-                            file_size: jsonl_size,         // Use JSONL file size
+                            file_path: canonical_path.clone(), // Use canonical path (not original JSON)
+                            file_size: canonical_size,         // Use canonical file size
                         };
 
                         if let Err(e) = event_bus.publish(PROVIDER_ID, payload) {
@@ -249,7 +248,7 @@ impl GeminiWatcher {
                         }
 
                         // Update session state immediately to prevent duplicate events
-                        state.update(jsonl_size);
+                        state.update(canonical_size);
 
                         // Mark session as seen so it's not treated as new again
                         if is_new_session {
@@ -269,7 +268,7 @@ impl GeminiWatcher {
                                 // Log session updates at info level
                                 let log_message = format!(
                                     "📝 Gemini session changed: {} (size: {} bytes)",
-                                    file_event.session_id, jsonl_size
+                                    file_event.session_id, canonical_size
                                 );
                                 if let Err(e) = log_info(PROVIDER_ID, &log_message) {
                                     eprintln!("Logging error: {}", e);
@@ -358,48 +357,6 @@ impl GeminiWatcher {
             }
         }
         None
-    }
-
-    /// Convert Gemini JSON file to JSONL and cache it
-    /// Returns the path to the cached JSONL file
-    fn convert_to_jsonl_and_cache(
-        json_file_path: &Path,
-        session_id: &str,
-    ) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
-        // Read the original Gemini JSON file
-        let content = fs::read_to_string(json_file_path)?;
-
-        // Parse the Gemini session
-        let session = GeminiSession::from_json(&content)?;
-
-        // Try to infer CWD from message content
-        let cwd = Self::infer_cwd_from_session(&session);
-
-        // Convert to JSONL
-        let jsonl_content = session.to_jsonl(cwd.as_deref())?;
-
-        // Create cache directory: ~/.guideai/cache/gemini-code/
-        let cache_dir = dirs::home_dir()
-            .ok_or("Could not determine home directory")?
-            .join(".guideai")
-            .join("cache")
-            .join(PROVIDER_ID);
-
-        fs::create_dir_all(&cache_dir)?;
-
-        // Write JSONL to cache
-        let jsonl_path = cache_dir.join(format!("{}.jsonl", session_id));
-        let mut file = fs::File::create(&jsonl_path)?;
-        file.write_all(jsonl_content.as_bytes())?;
-
-        Ok(jsonl_path)
-    }
-
-    /// Infer working directory from Gemini session messages
-    /// Uses the shared CWD extraction function from gemini.rs
-    fn infer_cwd_from_session(session: &GeminiSession) -> Option<String> {
-        use super::gemini::infer_cwd_from_session as shared_infer_cwd;
-        shared_infer_cwd(session, &session.project_hash)
     }
 
     /// Extract project name from JSONL file by reading CWD field

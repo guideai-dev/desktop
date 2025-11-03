@@ -1,10 +1,10 @@
 use crate::config::load_provider_config;
 use crate::events::{EventBus, SessionEventPayload};
-use crate::logging::{log_error, log_info, log_warn};
+use crate::logging::{log_debug, log_error, log_info, log_warn};
 use crate::providers::common::{
-    extract_session_id_from_filename, get_file_size, has_extension, should_skip_file,
-    SessionStateManager, WatcherStatus, EVENT_TIMEOUT, FILE_WATCH_POLL_INTERVAL,
-    MIN_SIZE_CHANGE_BYTES,
+    extract_cwd_from_canonical_content, extract_session_id_from_filename, get_canonical_path,
+    get_file_size, has_extension, should_skip_file, SessionStateManager, WatcherStatus,
+    EVENT_TIMEOUT, FILE_WATCH_POLL_INTERVAL, MIN_SIZE_CHANGE_BYTES,
 };
 use crate::upload_queue::UploadQueue;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -282,6 +282,37 @@ impl ClaudeWatcher {
         }
     }
 
+    fn convert_to_canonical_file(
+        claude_file: &Path,
+        session_id: &str,
+    ) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
+        use std::fs;
+
+        // Read Claude file content (already in canonical format)
+        let content = fs::read_to_string(claude_file)?;
+
+        // Extract CWD from canonical content (may not be in first line)
+        let cwd = extract_cwd_from_canonical_content(&content);
+
+        // Validate that CWD is present before processing
+        // This prevents race conditions with partial file writes where CWD hasn't been written yet
+        // If CWD is missing, return an error so we can retry on the next file modification event
+        let cwd_value = cwd.ok_or({
+            "CWD not found in session file - file may be incomplete, will retry on next event"
+        })?;
+
+        // Get project-organized canonical path
+        // Uses ~/.guideai/sessions/{provider}/{project}/{session_id}.jsonl
+        let canonical_path = get_canonical_path(PROVIDER_ID, Some(&cwd_value), session_id)?;
+
+        // Merge Claude file with agent files to project-organized path
+        // This will copy the main session and inline any agent-*.jsonl files
+        use crate::providers::common::merge_session_with_agents;
+        merge_session_with_agents(claude_file, &canonical_path)?;
+
+        Ok(canonical_path)
+    }
+
     fn process_file_event(event: &Event, projects_path: &Path) -> Option<FileChangeEvent> {
         // Only process write events for .jsonl files
         match &event.kind {
@@ -297,17 +328,54 @@ impl ClaudeWatcher {
                         continue;
                     }
 
+                    // Skip agent files - they will be merged when processing the main session
+                    if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                        use crate::providers::common::is_agent_file;
+                        if is_agent_file(filename) {
+                            continue;
+                        }
+                    }
+
                     // Extract project name from path
                     if let Some(project_name) = Self::extract_project_name(path, projects_path) {
-                        // Get file size and session ID
-                        let file_size = get_file_size(path).unwrap_or(0);
+                        // Extract session ID
                         let session_id = extract_session_id_from_filename(path);
 
+                        // Copy to canonical cache for consistency
+                        let canonical_path = match Self::convert_to_canonical_file(path, &session_id) {
+                            Ok(cache_path) => cache_path,
+                            Err(e) => {
+                                // Check if this is expected (partial file without CWD)
+                                let error_msg = e.to_string();
+                                if error_msg.contains("CWD not found") || error_msg.contains("file may be incomplete") {
+                                    // This is expected during partial file writes - use debug logging
+                                    if let Err(log_err) = log_debug(
+                                        PROVIDER_ID,
+                                        &format!("⏸ Skipping session {} - {}", session_id, e),
+                                    ) {
+                                        eprintln!("Logging error: {}", log_err);
+                                    }
+                                } else {
+                                    // Unexpected error - use error logging
+                                    if let Err(log_err) = log_error(
+                                        PROVIDER_ID,
+                                        &format!("Failed to copy to canonical cache: {}", e),
+                                    ) {
+                                        eprintln!("Logging error: {}", log_err);
+                                    }
+                                }
+                                continue;
+                            }
+                        };
+
+                        // Get file size of canonical cache file
+                        let file_size = get_file_size(&canonical_path).unwrap_or(0);
+
                         return Some(FileChangeEvent {
-                            path: path.clone(),
+                            path: canonical_path, // Use canonical cache path
                             project_name,
                             file_size,
-                            session_id: session_id.clone(),
+                            session_id,
                         });
                     }
                 }
@@ -417,11 +485,11 @@ mod tests {
 
         // Create a hidden file
         let hidden_file = project_path.join(".tmpABCDEF.jsonl");
-        fs::write(&hidden_file, r#"{"timestamp":"2025-01-01T10:00:00.000Z"}"#).unwrap();
+        fs::write(&hidden_file, r#"{"timestamp":"2025-01-01T10:00:00.000Z","cwd":"/test/path"}"#).unwrap();
 
         // Create a normal file
         let normal_file = project_path.join("session-123.jsonl");
-        fs::write(&normal_file, r#"{"timestamp":"2025-01-01T10:00:00.000Z"}"#).unwrap();
+        fs::write(&normal_file, r#"{"sessionId":"session-123","timestamp":"2025-01-01T10:00:00.000Z","cwd":"/test/path","type":"user"}"#).unwrap();
 
         // Test hidden file is ignored
         let hidden_event = Event {

@@ -1,13 +1,17 @@
 use crate::config::load_provider_config;
 use crate::events::{EventBus, SessionEventPayload};
 use crate::logging::{log_error, log_info};
+use crate::providers::canonical::converter::ToCanonical;
+use crate::providers::codex::converter::CodexMessage;
 use crate::providers::common::{
-    get_file_size, has_extension, should_skip_file, SessionStateManager, WatcherStatus,
-    EVENT_TIMEOUT, FILE_WATCH_POLL_INTERVAL, MIN_SIZE_CHANGE_BYTES,
+    extract_cwd_from_canonical_content, get_canonical_path, get_file_size, has_extension,
+    should_skip_file, SessionStateManager, WatcherStatus, EVENT_TIMEOUT, FILE_WATCH_POLL_INTERVAL,
+    MIN_SIZE_CHANGE_BYTES,
 };
 use crate::upload_queue::UploadQueue;
 use notify::{Config, Event, EventKind, PollWatcher, RecursiveMode, Watcher};
 use shellexpand::tilde;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
@@ -224,6 +228,83 @@ impl CodexWatcher {
         Ok(subdirs)
     }
 
+    fn convert_to_canonical_file(
+        codex_file: &Path,
+        session_id: &str,
+    ) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
+        // Read original Codex JSONL
+        let content = fs::read_to_string(codex_file)?;
+
+        let mut canonical_lines = Vec::new();
+
+        // Parse and convert each line independently (no aggregation needed)
+        for (line_num, line) in content.lines().enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
+
+            match serde_json::from_str::<CodexMessage>(line) {
+                Ok(codex_msg) => {
+                    // Convert to canonical format
+                    match codex_msg.to_canonical() {
+                        Ok(Some(mut canonical_msg)) => {
+                            // Update session_id from the known session ID (from filename)
+                            // This ensures all messages have the correct session_id,
+                            // not just the session_meta message
+                            canonical_msg.session_id = session_id.to_string();
+
+                            canonical_lines.push(serde_json::to_string(&canonical_msg)?);
+                        }
+                        Ok(None) => {
+                            // Message was skipped (e.g., duplicate event_msg)
+                        }
+                        Err(e) => {
+                            if let Err(log_err) = log_error(
+                                PROVIDER_ID,
+                                &format!(
+                                    "Failed to convert Codex message at line {}: {}",
+                                    line_num + 1,
+                                    e
+                                ),
+                            ) {
+                                eprintln!("Logging error: {}", log_err);
+                            }
+                            // Continue processing other lines
+                        }
+                    }
+                }
+                Err(e) => {
+                    if let Err(log_err) = log_error(
+                        PROVIDER_ID,
+                        &format!(
+                            "Failed to parse Codex message at line {}: {}",
+                            line_num + 1,
+                            e
+                        ),
+                    ) {
+                        eprintln!("Logging error: {}", log_err);
+                    }
+                    // Continue processing other lines
+                }
+            }
+        }
+
+        // Join canonical lines into content
+        let canonical_content = canonical_lines.join("\n");
+
+        // Extract CWD from canonical content
+        let cwd = extract_cwd_from_canonical_content(&canonical_content);
+
+        // Get project-organized canonical path
+        // Uses ~/.guideai/sessions/{provider}/{project}/{session_id}.jsonl
+        let canonical_path = get_canonical_path(PROVIDER_ID, cwd.as_deref(), session_id)?;
+
+        // Write to project-organized path
+        fs::write(&canonical_path, canonical_content)?;
+
+        Ok(canonical_path)
+    }
+
     fn file_event_processor(
         rx: mpsc::Receiver<Result<Event, notify::Error>>,
         sessions_path: PathBuf,
@@ -259,21 +340,41 @@ impl CodexWatcher {
                             is_new_session,
                         );
 
-                        // Publish SessionChanged event to event bus
-                        // DatabaseEventHandler will call db_helpers which does smart insert-or-update
-                        let payload = SessionEventPayload::SessionChanged {
-                            session_id: file_event.session_id.clone(),
-                            project_name: file_event.project_name.clone(),
-                            file_path: file_event.path.clone(),
-                            file_size: file_event.file_size,
-                        };
+                        // Convert to canonical format
+                        match Self::convert_to_canonical_file(&file_event.path, &file_event.session_id) {
+                            Ok(canonical_path) => {
+                                // Get size of canonical file
+                                let canonical_size = get_file_size(&canonical_path).unwrap_or(0);
 
-                        if let Err(e) = event_bus.publish(PROVIDER_ID, payload) {
-                            if let Err(log_err) = log_error(
-                                PROVIDER_ID,
-                                &format!("Failed to publish session event: {}", e),
-                            ) {
-                                eprintln!("Logging error: {}", log_err);
+                                // Publish SessionChanged event with CANONICAL path
+                                // DatabaseEventHandler will call db_helpers which does smart insert-or-update
+                                let payload = SessionEventPayload::SessionChanged {
+                                    session_id: file_event.session_id.clone(),
+                                    project_name: file_event.project_name.clone(),
+                                    file_path: canonical_path,
+                                    file_size: canonical_size,
+                                };
+
+                                if let Err(e) = event_bus.publish(PROVIDER_ID, payload) {
+                                    if let Err(log_err) = log_error(
+                                        PROVIDER_ID,
+                                        &format!("Failed to publish session event: {}", e),
+                                    ) {
+                                        eprintln!("Logging error: {}", log_err);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                if let Err(log_err) = log_error(
+                                    PROVIDER_ID,
+                                    &format!(
+                                        "Failed to convert session {} to canonical format: {}",
+                                        file_event.session_id, e
+                                    ),
+                                ) {
+                                    eprintln!("Logging error: {}", log_err);
+                                }
+                                // Continue processing - don't crash on conversion errors
                             }
                         }
 
