@@ -28,7 +28,6 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { AiProcessingProgress } from '../components/AiProcessingProgress'
 import { JsonBlock } from '../components/JsonBlock'
 import { SessionChangesTab } from '../components/SessionChangesTab'
 import { SessionContextTab } from '../components/SessionContextTab'
@@ -774,15 +773,6 @@ export default function SessionDetailPage() {
             }}
             ProviderIcon={ProviderIcon}
           />
-
-          {/* AI Processing Progress */}
-          {progress.currentStep && (
-            <div className="card bg-base-100 border border-primary">
-              <div className="card-body p-4">
-                <AiProcessingProgress step={progress.currentStep} />
-              </div>
-            </div>
-          )}
         </>
       )}
 
