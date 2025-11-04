@@ -46,7 +46,7 @@ fn get_db_connection() -> Result<std::sync::MutexGuard<'static, Option<Connectio
 
 /// Helper function to get the active database connection with mutable access
 /// Returns an error if the connection is not initialized
-fn with_connection_mut<F, T>(f: F) -> Result<T, rusqlite::Error>
+pub fn with_connection_mut<F, T>(f: F) -> Result<T, rusqlite::Error>
 where
     F: FnOnce(&mut Connection) -> Result<T, rusqlite::Error>,
 {

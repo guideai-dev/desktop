@@ -15,7 +15,7 @@ pub mod scanner;
 pub mod types;
 
 pub use scanner::{scan_existing_sessions, write_canonical_file, ScanResult};
-pub use types::{CursorSession, ProjectInfo, SessionMetadata};
+pub use types::{CursorSession, SessionMetadata};
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -28,7 +28,7 @@ const CURSOR_CHATS_DIR: &str = "~/.cursor/chats";
 /// 1. Iterates through hash directories in ~/.cursor/chats
 /// 2. Finds session directories with store.db files
 /// 3. Attempts to read session metadata for project names
-pub fn scan_projects(_home_directory: &str) -> Result<Vec<ProjectInfo>, String> {
+pub fn scan_projects(_home_directory: &str) -> Result<Vec<crate::config::ProjectInfo>, String> {
     let chats_path = shellexpand::tilde(CURSOR_CHATS_DIR).to_string();
     let chats_dir = Path::new(&chats_path);
 
@@ -75,9 +75,15 @@ pub fn scan_projects(_home_directory: &str) -> Result<Vec<ProjectInfo>, String> 
             match db::open_cursor_db(&db_path) {
                 Ok(conn) => match db::get_session_metadata(&conn) {
                     Ok(metadata) => {
-                        projects.push(ProjectInfo {
+                        // Convert created_at timestamp to RFC3339
+                        let last_modified = chrono::DateTime::from_timestamp_millis(metadata.created_at)
+                            .unwrap_or_else(chrono::Utc::now)
+                            .to_rfc3339();
+
+                        projects.push(crate::config::ProjectInfo {
                             name: metadata.name,
                             path: session_id, // Use session ID as path
+                            last_modified,
                         });
                     }
                     Err(e) => {
@@ -87,9 +93,10 @@ pub fn scan_projects(_home_directory: &str) -> Result<Vec<ProjectInfo>, String> 
                             e
                         );
                         // Add with generic name
-                        projects.push(ProjectInfo {
+                        projects.push(crate::config::ProjectInfo {
                             name: format!("Cursor Session ({})", &session_id[..8]),
                             path: session_id,
+                            last_modified: chrono::Utc::now().to_rfc3339(),
                         });
                     }
                 },

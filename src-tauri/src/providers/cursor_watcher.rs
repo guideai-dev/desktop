@@ -7,10 +7,10 @@
 /// - Only polls sessions updated in last hour (automatic pruning)
 
 use crate::config::load_provider_config;
-use crate::database::with_connection;
+use crate::database::with_connection_mut;
 use crate::events::{EventBus, SessionEventPayload};
 use crate::providers::cursor::{db, discover_sessions, get_db_path_for_session, scan_existing_sessions};
-use crate::providers::common::{get_canonical_path, WatcherStatus};
+use crate::providers::common::get_canonical_path;
 use crate::upload_queue::UploadQueue;
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
@@ -31,6 +31,7 @@ struct SessionTracker {
     last_checked: SystemTime,
 }
 
+#[derive(Debug)]
 pub struct CursorWatcher {
     _watcher: RecommendedWatcher,
     _poll_thread: thread::JoinHandle<()>,
@@ -208,7 +209,7 @@ impl CursorWatcher {
 
         // Use scanner logic to process single session
         use crate::providers::cursor::scanner;
-        use crate::providers::canonical::ToCanonical;
+        use crate::providers::canonical::converter::ToCanonical;
 
         let conn = db::open_cursor_db(&session.db_path)?;
         let decoded_blobs = db::get_decoded_blobs(&conn)?;
@@ -233,7 +234,8 @@ impl CursorWatcher {
             PROVIDER_ID,
             Some(session.project_name()),
             &session.session_id,
-        )?;
+        )
+        .map_err(|e| -> Box<dyn std::error::Error> { Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())) })?;
 
         scanner::write_canonical_file(&canonical_path, &canonical_messages)?;
 
@@ -245,7 +247,7 @@ impl CursorWatcher {
             SessionEventPayload::SessionChanged {
                 session_id: session.session_id.clone(),
                 project_name: session.project_name().to_string(),
-                file_path: canonical_path.to_string_lossy().to_string(),
+                file_path: canonical_path,
                 file_size,
             },
         )?;
@@ -314,7 +316,7 @@ impl CursorWatcher {
 
     /// Query our database for recently active Cursor sessions
     fn get_active_sessions_from_db() -> Result<Vec<(String, String)>, rusqlite::Error> {
-        with_connection(|conn| {
+        with_connection_mut(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT session_id, file_path
                  FROM sessions
@@ -323,10 +325,12 @@ impl CursorWatcher {
                  ORDER BY last_updated DESC",
             )?;
 
-            stmt.query_map([ACTIVE_WINDOW_HOURS], |row| {
+            let sessions = stmt.query_map([ACTIVE_WINDOW_HOURS], |row| {
                 Ok((row.get(0)?, row.get(1)?))
             })?
-            .collect::<Result<Vec<_>, _>>()
+            .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(sessions)
         })
     }
 

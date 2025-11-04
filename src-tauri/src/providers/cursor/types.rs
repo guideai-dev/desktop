@@ -44,13 +44,6 @@ impl CursorSession {
     }
 }
 
-/// Project information for project scanning
-#[derive(Debug, Clone, Serialize)]
-pub struct ProjectInfo {
-    pub name: String,
-    pub path: String, // Session ID or hash
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

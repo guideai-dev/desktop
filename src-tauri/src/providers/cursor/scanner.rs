@@ -3,7 +3,7 @@
 /// This runs on watcher initialization to find and process all existing
 /// Cursor sessions that may not have been previously imported.
 
-use super::{db, discover_sessions, protobuf::CursorBlob, CursorSession};
+use super::{db, discover_sessions, CursorSession};
 use crate::events::{EventBus, SessionEventPayload};
 use crate::providers::canonical::{converter::ToCanonical, CanonicalMessage};
 use crate::providers::common::get_canonical_path;
@@ -144,7 +144,8 @@ fn process_session(
         PROVIDER_ID,
         Some(session.project_name()),
         &session.session_id,
-    )?;
+    )
+    .map_err(|e| -> Box<dyn std::error::Error> { Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())) })?;
 
     // Write canonical JSONL
     write_canonical_file(&canonical_path, &canonical_messages)?;
@@ -156,7 +157,7 @@ fn process_session(
     let payload = SessionEventPayload::SessionChanged {
         session_id: session.session_id.clone(),
         project_name: session.project_name().to_string(),
-        file_path: canonical_path.to_string_lossy().to_string(),
+        file_path: canonical_path.clone(),
         file_size,
     };
 

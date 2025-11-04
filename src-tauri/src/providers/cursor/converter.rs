@@ -2,9 +2,9 @@
 
 use super::protobuf::{CursorBlob, ContentBlock as CursorContentBlock};
 use crate::providers::canonical::{
-    CanonicalMessage, ContentBlock, ContentValue, MessageContent, MessageType, ToCanonical,
-    TokenUsage,
+    CanonicalMessage, ContentBlock, ContentValue, MessageContent, MessageType,
 };
+use crate::providers::canonical::converter::ToCanonical;
 use anyhow::Result;
 use chrono::Utc;
 use serde_json::{json, Value};
@@ -139,7 +139,7 @@ impl CursorBlob {
             metadata["metadata"] = json!(self.metadata);
         }
 
-        if let Some(ref complex) = self.complex_data {
+        if let Some(ref _complex) = self.complex_data {
             metadata["has_complex_data"] = json!(true);
 
             // Try to parse and extract interesting fields

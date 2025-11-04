@@ -7,8 +7,8 @@ use crate::config::{
 use crate::logging::{read_provider_logs, LogEntry};
 use crate::providers::{
     scan_all_sessions, ClaudeWatcher, ClaudeWatcherStatus, CodexWatcher, CodexWatcherStatus,
-    CopilotWatcher, CopilotWatcherStatus, GeminiWatcher, GeminiWatcherStatus, OpenCodeWatcher,
-    OpenCodeWatcherStatus, SessionInfo,
+    CopilotWatcher, CopilotWatcherStatus, CursorWatcher, CursorWatcherStatus, GeminiWatcher,
+    GeminiWatcherStatus, OpenCodeWatcher, OpenCodeWatcherStatus, SessionInfo,
 };
 use crate::upload_queue::{QueueItems, UploadQueue, UploadStatus};
 use serde::{Deserialize, Serialize};
@@ -326,6 +326,7 @@ pub enum Watcher {
     OpenCode(OpenCodeWatcher),
     Codex(CodexWatcher),
     Gemini(GeminiWatcher),
+    Cursor(CursorWatcher),
 }
 
 impl Watcher {
@@ -336,6 +337,7 @@ impl Watcher {
             Watcher::OpenCode(watcher) => watcher.stop(),
             Watcher::Codex(watcher) => watcher.stop(),
             Watcher::Gemini(watcher) => watcher.stop(),
+            Watcher::Cursor(watcher) => { let _ = watcher.stop(); },
         }
     }
 }
@@ -567,6 +569,60 @@ pub async fn get_codex_watcher_status(
                 processing_uploads: 0,
                 failed_uploads: 0,
             })
+        }
+    } else {
+        Err("Failed to access watcher state".to_string())
+    }
+}
+
+// Cursor watcher commands
+#[tauri::command]
+pub async fn start_cursor_watcher(
+    state: State<'_, AppState>,
+    projects: Vec<String>,
+) -> Result<(), String> {
+    // Check if chats directory exists
+    let chats_path = shellexpand::tilde("~/.cursor/chats").to_string();
+    if !std::path::Path::new(&chats_path).exists() {
+        return Err(format!(
+            "Cannot start watcher: Cursor chats directory '{}' does not exist. Please install Cursor or create a session.",
+            chats_path
+        ));
+    }
+
+    let upload_queue = Arc::clone(&state.upload_queue);
+    let event_bus = state.event_bus.clone();
+
+    match CursorWatcher::new(projects, upload_queue, event_bus) {
+        Ok(watcher) => {
+            if let Ok(mut watchers) = state.watchers.lock() {
+                watchers.insert("cursor".to_string(), Watcher::Cursor(watcher));
+            }
+            Ok(())
+        }
+        Err(e) => Err(format!("Failed to start Cursor watcher: {}", e)),
+    }
+}
+
+#[tauri::command]
+pub async fn stop_cursor_watcher(state: State<'_, AppState>) -> Result<(), String> {
+    if let Ok(mut watchers) = state.watchers.lock() {
+        if let Some(watcher) = watchers.remove("cursor") {
+            watcher.stop();
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_cursor_watcher_status(
+    state: State<'_, AppState>,
+) -> Result<CursorWatcherStatus, String> {
+    if let Ok(watchers) = state.watchers.lock() {
+        if let Some(Watcher::Cursor(watcher)) = watchers.get("cursor") {
+            watcher.get_status()
+        } else {
+            Ok(CursorWatcherStatus::default())
         }
     } else {
         Err("Failed to access watcher state".to_string())

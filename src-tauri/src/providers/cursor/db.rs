@@ -44,8 +44,10 @@ pub fn get_all_blobs(
 ) -> Result<Vec<(String, Vec<u8>)>, rusqlite::Error> {
     let mut stmt = conn.prepare("SELECT id, data FROM blobs ORDER BY rowid")?;
 
-    stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-        .collect::<Result<Vec<_>, _>>()
+    let blobs = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(blobs)
 }
 
 /// Get all blobs decoded as CursorBlob structs

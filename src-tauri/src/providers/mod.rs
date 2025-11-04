@@ -11,6 +11,8 @@ pub mod copilot; // Copilot converter (public for canonical format migration)
 mod copilot_parser;
 mod copilot_utils;
 mod copilot_watcher;
+pub mod cursor; // Cursor converter
+mod cursor_watcher;
 pub mod db_helpers;
 pub mod gemini; // Gemini converter (public for canonical format migration)
 pub mod gemini_parser; // Made public for test access
@@ -25,6 +27,7 @@ mod session_scanner;
 pub use claude_watcher::{ClaudeWatcher, ClaudeWatcherStatus};
 pub use codex_watcher::{CodexWatcher, CodexWatcherStatus};
 pub use copilot_watcher::{CopilotWatcher, CopilotWatcherStatus};
+pub use cursor_watcher::{CursorWatcher, CursorWatcherStatus};
 pub use gemini_watcher::{GeminiWatcher, GeminiWatcherStatus};
 pub use opencode_watcher::{OpenCodeWatcher, OpenCodeWatcherStatus};
 pub use session_scanner::{scan_all_sessions, SessionInfo};
@@ -36,6 +39,7 @@ pub fn scan_projects(provider_id: &str, home_directory: &str) -> Result<Vec<Proj
         "opencode" => opencode::scan_projects(home_directory),
         "codex" => codex::scan_projects(home_directory),
         "gemini-code" => gemini_utils::scan_projects(home_directory),
+        "cursor" => cursor::scan_projects(home_directory),
         other => Err(format!("Unsupported provider: {}", other)),
     }
 }
