@@ -116,9 +116,9 @@ fn process_session(
                 // Set session ID (ToCanonical doesn't know it)
                 canonical.session_id = session.session_id.clone();
 
-                // Set CWD to project name if not set
+                // Set CWD from session if available
                 if canonical.cwd.is_none() {
-                    canonical.cwd = Some(session.project_name().to_string());
+                    canonical.cwd = session.cwd.clone();
                 }
 
                 canonical_messages.push(canonical);
@@ -139,10 +139,10 @@ fn process_session(
     // Sort by timestamp (though Cursor blobs don't have timestamps, use database order)
     // Messages are already in database order from the query
 
-    // Get canonical path
+    // Get canonical path (use CWD if available)
     let canonical_path = get_canonical_path(
         PROVIDER_ID,
-        Some(session.project_name()),
+        session.cwd.as_deref(),
         &session.session_id,
     )
     .map_err(|e| -> Box<dyn std::error::Error> { Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())) })?;

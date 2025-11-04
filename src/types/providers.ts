@@ -110,6 +110,11 @@ const PLATFORM_DEFAULTS: Record<string, Record<string, string>> = {
     darwin: '~/.gemini',
     linux: '~/.gemini',
   },
+  cursor: {
+    win32: '~/.cursor', // Works with WSL/Git Bash on Windows
+    darwin: '~/.cursor',
+    linux: '~/.cursor',
+  },
 }
 
 // Get platform-specific default home directory
@@ -172,5 +177,14 @@ export const CODING_AGENTS: CodingAgent[] = [
     icon: 'M12 2 L13.5 8.5 L20 10 L13.5 11.5 L12 18 L10.5 11.5 L4 10 L10.5 8.5 Z',
     color: 'from-blue-500 to-purple-600',
     setupInstructionsFile: 'gemini-code.md',
+  },
+  {
+    id: 'cursor',
+    name: 'Cursor',
+    description: 'AI-powered code editor',
+    defaultHomeDirectory: getPlatformDefault('cursor'),
+    icon: 'M12 2L2 7l10 5 10-5-10-5z',
+    color: 'from-purple-500 to-pink-500',
+    setupInstructionsFile: 'cursor.md',
   },
 ]

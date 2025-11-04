@@ -80,8 +80,20 @@ pub fn scan_projects(_home_directory: &str) -> Result<Vec<crate::config::Project
                             .unwrap_or_else(chrono::Utc::now)
                             .to_rfc3339();
 
+                        // Try to find CWD and derive project name
+                        let cwd = find_cwd_for_session(&hash);
+                        let project_name = cwd
+                            .as_ref()
+                            .and_then(|path| {
+                                Path::new(path)
+                                    .file_name()
+                                    .and_then(|name| name.to_str())
+                                    .map(|s| s.to_string())
+                            })
+                            .unwrap_or_else(|| metadata.name.clone());
+
                         projects.push(crate::config::ProjectInfo {
-                            name: metadata.name,
+                            name: project_name,
                             path: session_id, // Use session ID as path
                             last_modified,
                         });
@@ -162,11 +174,15 @@ pub fn discover_sessions() -> Result<Vec<CursorSession>, Box<dyn std::error::Err
             match db::open_cursor_db(&db_path) {
                 Ok(conn) => match db::get_session_metadata(&conn) {
                     Ok(metadata) => {
+                        // Try to find CWD from projects directory
+                        let cwd = find_cwd_for_session(&hash);
+
                         sessions.push(CursorSession {
                             session_id,
                             db_path,
                             metadata,
                             hash: hash.clone(),
+                            cwd,
                         });
                     }
                     Err(e) => {
@@ -202,6 +218,45 @@ pub fn get_db_path_for_session(session_id: &str) -> Result<PathBuf, String> {
         .find(|s| s.session_id == session_id)
         .map(|s| s.db_path)
         .ok_or_else(|| format!("Session not found: {}", session_id))
+}
+
+/// Find the CWD for a Cursor session by checking the projects directory
+///
+/// Cursor stores projects in ~/.cursor/projects with folder names that are
+/// the CWD path with the leading / removed and remaining / replaced with -
+/// Example: /Users/cliftonc/work/guideai -> Users-cliftonc-work-guideai
+pub fn find_cwd_for_session(session_hash: &str) -> Option<String> {
+    let projects_path = shellexpand::tilde("~/.cursor/projects").to_string();
+    let projects_dir = Path::new(&projects_path);
+
+    if !projects_dir.exists() {
+        return None;
+    }
+
+    // Try to find a matching project by computing hash for each CWD
+    if let Ok(entries) = fs::read_dir(projects_dir) {
+        for entry in entries.flatten() {
+            let project_path = entry.path();
+            if !project_path.is_dir() {
+                continue;
+            }
+
+            // Convert project folder name back to CWD
+            // Example: Users-cliftonc-work-guideai -> /Users/cliftonc/work/guideai
+            if let Some(folder_name) = project_path.file_name().and_then(|n| n.to_str()) {
+                let cwd = format!("/{}", folder_name.replace('-', "/"));
+
+                // Compute MD5 hash of CWD to see if it matches the session hash
+                let hash = format!("{:x}", md5::compute(cwd.as_bytes()));
+
+                if hash == session_hash {
+                    return Some(cwd);
+                }
+            }
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]

@@ -1,4 +1,5 @@
 import claudeCodeSvg from '../../assets/icons/claude-code.svg'
+import cursorSvg from '../../assets/icons/cursor.svg'
 import geminiCodeSvg from '../../assets/icons/gemini-code.svg'
 import githubCopilotSvg from '../../assets/icons/github-copilot.svg'
 import openaiCodexSvg from '../../assets/icons/openai-codex.svg'
@@ -17,6 +18,7 @@ function ProviderIcon({ providerId, className = '', size = 20 }: ProviderIconPro
     opencode: opencodeSvg,
     codex: openaiCodexSvg,
     'gemini-code': geminiCodeSvg,
+    cursor: cursorSvg,
   }
 
   const iconPath = iconMap[providerId]
@@ -25,8 +27,8 @@ function ProviderIcon({ providerId, className = '', size = 20 }: ProviderIconPro
     return null
   }
 
-  // Add light background for OpenAI Codex and GitHub Copilot (dark icons)
-  const needsBackground = providerId === 'codex' || providerId === 'github-copilot'
+  // Add light background for OpenAI Codex, GitHub Copilot, and Cursor (dark icons)
+  const needsBackground = providerId === 'codex' || providerId === 'github-copilot' || providerId === 'cursor'
   const wrapperClassName = needsBackground
     ? 'inline-flex items-center justify-center bg-white rounded'
     : ''

@@ -219,7 +219,7 @@ impl CursorWatcher {
             if let Ok(Some(mut canonical)) = blob.to_canonical() {
                 canonical.session_id = session.session_id.clone();
                 if canonical.cwd.is_none() {
-                    canonical.cwd = Some(session.project_name().to_string());
+                    canonical.cwd = session.cwd.clone();
                 }
                 canonical_messages.push(canonical);
             }
@@ -229,10 +229,10 @@ impl CursorWatcher {
             return Ok(()); // No messages yet, skip
         }
 
-        // Get canonical path and write
+        // Get canonical path and write (use CWD if available)
         let canonical_path = get_canonical_path(
             PROVIDER_ID,
-            Some(session.project_name()),
+            session.cwd.as_deref(),
             &session.session_id,
         )
         .map_err(|e| -> Box<dyn std::error::Error> { Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())) })?;
@@ -246,7 +246,7 @@ impl CursorWatcher {
             PROVIDER_ID,
             SessionEventPayload::SessionChanged {
                 session_id: session.session_id.clone(),
-                project_name: session.project_name().to_string(),
+                project_name: session.project_name(),
                 file_path: canonical_path,
                 file_size,
             },

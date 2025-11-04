@@ -27,14 +27,26 @@ pub struct CursorSession {
     /// Session metadata from the meta table
     pub metadata: SessionMetadata,
 
-    /// Parent hash directory name
+    /// Parent hash directory name (MD5 of CWD)
     pub hash: String,
+
+    /// Current working directory (derived from projects directory)
+    pub cwd: Option<String>,
 }
 
 impl CursorSession {
     /// Get a human-readable project name from the session
-    pub fn project_name(&self) -> &str {
-        &self.metadata.name
+    /// Derives from CWD if available, otherwise uses session name
+    pub fn project_name(&self) -> String {
+        self.cwd
+            .as_ref()
+            .and_then(|path| {
+                std::path::Path::new(path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_else(|| self.metadata.name.clone())
     }
 
     /// Get created timestamp as DateTime

@@ -20,6 +20,11 @@ import {
   useStartCopilotWatcher,
   useStopCopilotWatcher,
 } from '../../hooks/useCopilotWatcher'
+import {
+  useCursorWatcherStatus,
+  useStartCursorWatcher,
+  useStopCursorWatcher,
+} from '../../hooks/useCursorWatcher'
 import { useDirectoryExists } from '../../hooks/useDirectoryExists'
 import {
   useOpenCodeWatcherStatus,
@@ -90,6 +95,10 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
   const { mutate: startCodexWatcher, isPending: startingCodexWatcher } = useStartCodexWatcher()
   const { mutate: stopCodexWatcher, isPending: stoppingCodexWatcher } = useStopCodexWatcher()
 
+  const { data: cursorWatcherStatus } = useCursorWatcherStatus()
+  const { mutate: startCursorWatcher, isPending: startingCursorWatcher } = useStartCursorWatcher()
+  const { mutate: stopCursorWatcher, isPending: stoppingCursorWatcher } = useStopCursorWatcher()
+
   // Get the appropriate status and functions for the current provider
   const watcherStatus =
     agent.id === 'claude-code'
@@ -100,7 +109,9 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
           ? opencodeWatcherStatus
           : agent.id === 'codex'
             ? codexWatcherStatus
-            : undefined
+            : agent.id === 'cursor'
+              ? cursorWatcherStatus
+              : undefined
   const startWatcher =
     agent.id === 'claude-code'
       ? startClaudeWatcher
@@ -110,7 +121,9 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
           ? startOpenCodeWatcher
           : agent.id === 'codex'
             ? startCodexWatcher
-            : undefined
+            : agent.id === 'cursor'
+              ? startCursorWatcher
+              : undefined
   const stopWatcher =
     agent.id === 'claude-code'
       ? stopClaudeWatcher
@@ -120,7 +133,9 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
           ? stopOpenCodeWatcher
           : agent.id === 'codex'
             ? stopCodexWatcher
-            : undefined
+            : agent.id === 'cursor'
+              ? stopCursorWatcher
+              : undefined
   const startingWatcher =
     agent.id === 'claude-code'
       ? startingClaudeWatcher
@@ -130,7 +145,9 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
           ? startingOpenCodeWatcher
           : agent.id === 'codex'
             ? startingCodexWatcher
-            : false
+            : agent.id === 'cursor'
+              ? startingCursorWatcher
+              : false
   const stoppingWatcher =
     agent.id === 'claude-code'
       ? stoppingClaudeWatcher
@@ -140,7 +157,9 @@ function AgentConfig({ agent, headerActions }: AgentConfigProps) {
           ? stoppingOpenCodeWatcher
           : agent.id === 'codex'
             ? stoppingCodexWatcher
-            : false
+            : agent.id === 'cursor'
+              ? stoppingCursorWatcher
+              : false
 
   const [localConfig, setLocalConfig] = useState<ProviderConfig>({
     enabled: false,
