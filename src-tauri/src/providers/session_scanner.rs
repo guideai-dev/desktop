@@ -1,34 +1,11 @@
 use crate::logging::{log_debug, log_info, log_warn};
+use crate::providers::common::{extract_timing_from_jsonl, SessionInfo, TimingData};
 use crate::providers::gemini::converter::convert_to_canonical_file;
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use shellexpand::tilde;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-/// Type alias for timing data tuple returned from JSONL parsing
-#[allow(dead_code)]
-type TimingData = (
-    Option<DateTime<Utc>>, // start_time
-    Option<DateTime<Utc>>, // end_time
-    Option<i64>,           // duration_ms
-);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionInfo {
-    pub provider: String,
-    pub project_name: String,
-    pub session_id: String,
-    pub file_path: PathBuf,
-    pub file_name: String,
-    pub session_start_time: Option<DateTime<Utc>>,
-    pub session_end_time: Option<DateTime<Utc>>,
-    pub duration_ms: Option<i64>,
-    pub file_size: u64,
-    pub content: Option<String>, // For OpenCode sessions with in-memory content
-    pub cwd: Option<String>,     // Working directory for the session
-    pub project_hash: Option<String>, // Project hash (for Gemini Code - SHA256 of CWD)
-}
 
 #[derive(Debug, Deserialize)]
 struct ClaudeLogEntry {
@@ -715,62 +692,6 @@ fn parse_copilot_session(
         cwd: parsed.cwd,
         project_hash: None,
     }))
-}
-
-// Helper to extract timing from JSONL (same logic as db_helpers)
-#[allow(dead_code)]
-fn extract_timing_from_jsonl(file_path: &Path) -> Result<TimingData, String> {
-    let content = fs::read_to_string(file_path)
-        .map_err(|e| format!("Failed to read snapshot file: {}", e))?;
-
-    let lines: Vec<&str> = content
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .collect();
-
-    if lines.is_empty() {
-        return Ok((None, None, None));
-    }
-
-    // Find first line with timestamp
-    let session_start_time = lines.iter().find_map(|line| {
-        serde_json::from_str::<serde_json::Value>(line)
-            .ok()
-            .and_then(|entry| {
-                entry
-                    .get("timestamp")
-                    .and_then(|ts| ts.as_str())
-                    .and_then(|ts_str| {
-                        DateTime::parse_from_rfc3339(ts_str)
-                            .ok()
-                            .map(|dt| dt.with_timezone(&Utc))
-                    })
-            })
-    });
-
-    // Find last line with timestamp
-    let session_end_time = lines.iter().rev().find_map(|line| {
-        serde_json::from_str::<serde_json::Value>(line)
-            .ok()
-            .and_then(|entry| {
-                entry
-                    .get("timestamp")
-                    .and_then(|ts| ts.as_str())
-                    .and_then(|ts_str| {
-                        DateTime::parse_from_rfc3339(ts_str)
-                            .ok()
-                            .map(|dt| dt.with_timezone(&Utc))
-                    })
-            })
-    });
-
-    // Calculate duration
-    let duration_ms = match (session_start_time, session_end_time) {
-        (Some(start), Some(end)) => Some((end - start).num_milliseconds()),
-        _ => None,
-    };
-
-    Ok((session_start_time, session_end_time, duration_ms))
 }
 
 #[allow(dead_code)] // Will be removed during provider file reorganization

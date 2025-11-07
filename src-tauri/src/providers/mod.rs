@@ -14,11 +14,12 @@ mod session_scanner;
 // Re-export watchers from provider modules
 pub use claude::watcher::{ClaudeWatcher, ClaudeWatcherStatus};
 pub use codex::watcher::{CodexWatcher, CodexWatcherStatus};
+pub use common::SessionInfo;
 pub use copilot::watcher::{CopilotWatcher, CopilotWatcherStatus};
 pub use cursor::watcher::{CursorWatcher, CursorWatcherStatus};
 pub use gemini::watcher::{GeminiWatcher, GeminiWatcherStatus};
 pub use opencode::watcher::{OpenCodeWatcher, OpenCodeWatcherStatus};
-pub use session_scanner::{scan_all_sessions_filtered, SessionInfo};
+pub use session_scanner::scan_all_sessions_filtered;
 
 pub fn scan_projects(provider_id: &str, home_directory: &str) -> Result<Vec<ProjectInfo>, String> {
     match provider_id {
