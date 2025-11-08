@@ -17,7 +17,7 @@ A lightweight menubar app that watches your AI coding sessions and uploads them 
 
 **📊 Unified Analytics** - All your AI tools in one place. Compare effectiveness, track costs, identify patterns.
 
-**⚡ Lightweight** - Runs quietly in your menubar. Uses minimal resources.
+**⚡ Lightweight** - Built in Rust. Uses minimal resources.
 
 ## Supported AI Tools
 
@@ -31,9 +31,9 @@ A lightweight menubar app that watches your AI coding sessions and uploads them 
 
 ### Download
 
-- 🍎 [**macOS**](https://downloads.guideai.dev/desktop/latest/) (Universal - Intel & Apple Silicon)
-- 🪟 [**Windows**](https://downloads.guideai.dev/desktop/latest/) (Windows 10+)
-- 🐧 [**Linux**](https://downloads.guideai.dev/desktop/latest/) (.deb / .AppImage)
+- 🍎 [**macOS**](https://install.guideai.dev/desktop/latest/GuideAI-Desktop-macOS.dmg) (Universal - Intel & Apple Silicon)
+- 🪟 [**Windows**](https://install.guideai.dev/desktop/latest/GuideAI-Desktop-windows.msi) (Windows 10+)
+- 🐧 [**Linux**](https://install.guideai.dev/desktop/latest/GuideAI-Desktop-linux.deb) (.deb)
 
 ### First Launch
 
@@ -129,7 +129,3 @@ Part of the GuideAI ecosystem:
 ## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
-
----
-
-Built with ❤️ by the GuideAI team
