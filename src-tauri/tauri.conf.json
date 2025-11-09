@@ -1,6 +1,6 @@
 {
   "productName": "GuideAI Desktop",
-  "version": "0.1.41",
+  "version": "0.1.42",
   "identifier": "com.guideai.desktop",
   "build": {
     "beforeBuildCommand": "pnpm build",
