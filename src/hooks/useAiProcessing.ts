@@ -1,4 +1,8 @@
-import { ClaudeModelAdapter, GeminiModelAdapter } from '@guideai-dev/session-processing/ai-models'
+import {
+  ClaudeModelAdapter,
+  GeminiModelAdapter,
+  OpenAIModelAdapter,
+} from '@guideai-dev/session-processing/ai-models'
 import {
   IntentExtractionTask,
   QualityAssessmentTask,
@@ -7,6 +11,7 @@ import {
 } from '@guideai-dev/session-processing/ai-models'
 import type { ParsedSession } from '@guideai-dev/session-processing/processors'
 import { invoke } from '@tauri-apps/api/core'
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
 import { useCallback, useState } from 'react'
 import { useConfigStore } from '../stores/configStore'
 import type { AiProcessingStep } from './useAiProcessingProgress'
@@ -42,7 +47,7 @@ interface AiProcessingResult {
 export function useAiProcessing() {
   const [processing, setProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const { getAiApiKey } = useConfigStore()
+  const { getAiApiKey, getAiModel, systemConfig } = useConfigStore()
   const { user } = useAuth()
 
   const processSessionWithAi = useCallback(
@@ -73,17 +78,57 @@ export function useAiProcessing() {
         // Check for available API keys
         const claudeKey = getAiApiKey('claude')
         const geminiKey = getAiApiKey('gemini')
+        const openaiKey = getAiApiKey('openai')
 
-        if (!claudeKey && !geminiKey) {
+        if (!claudeKey && !geminiKey && !openaiKey) {
           return null
         }
 
-        // Prefer Claude if available, otherwise use Gemini (guaranteed to exist here)
-        const adapter = claudeKey
-          ? new ClaudeModelAdapter({ apiKey: claudeKey })
-          : geminiKey
-            ? new GeminiModelAdapter({ apiKey: geminiKey })
-            : null
+        // Get user preference
+        const preferredProvider = systemConfig.preferredAiProvider || 'auto'
+
+        // Get selected models
+        const geminiModel = getAiModel('gemini')
+        const openaiModel = getAiModel('openai')
+
+        // Select adapter based on preference
+        let adapter = null
+
+        if (preferredProvider === 'auto') {
+          // Auto-select: prefer Claude > OpenAI > Gemini (based on quality/reliability)
+          if (claudeKey) {
+            adapter = new ClaudeModelAdapter({ apiKey: claudeKey, fetch: tauriFetch })
+          } else if (openaiKey) {
+            adapter = new OpenAIModelAdapter({
+              apiKey: openaiKey,
+              fetch: tauriFetch,
+              model: openaiModel,
+            })
+          } else if (geminiKey) {
+            adapter = new GeminiModelAdapter({
+              apiKey: geminiKey,
+              fetch: tauriFetch,
+              model: geminiModel,
+            })
+          }
+        } else {
+          // Explicit selection
+          if (preferredProvider === 'claude' && claudeKey) {
+            adapter = new ClaudeModelAdapter({ apiKey: claudeKey, fetch: tauriFetch })
+          } else if (preferredProvider === 'openai' && openaiKey) {
+            adapter = new OpenAIModelAdapter({
+              apiKey: openaiKey,
+              fetch: tauriFetch,
+              model: openaiModel,
+            })
+          } else if (preferredProvider === 'gemini' && geminiKey) {
+            adapter = new GeminiModelAdapter({
+              apiKey: geminiKey,
+              fetch: tauriFetch,
+              model: geminiModel,
+            })
+          }
+        }
 
         if (!adapter) {
           return null
@@ -420,7 +465,7 @@ export function useAiProcessing() {
         setProcessing(false)
       }
     },
-    [getAiApiKey, user]
+    [getAiApiKey, getAiModel, systemConfig, user]
   )
 
   return {
@@ -430,7 +475,8 @@ export function useAiProcessing() {
     hasApiKey: () => {
       const claudeKey = getAiApiKey('claude')
       const geminiKey = getAiApiKey('gemini')
-      return !!(claudeKey || geminiKey)
+      const openaiKey = getAiApiKey('openai')
+      return !!(claudeKey || geminiKey || openaiKey)
     },
   }
 }

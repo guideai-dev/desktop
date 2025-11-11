@@ -1,17 +1,32 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
 import Login from '../components/Login'
 import { useAuth } from '../hooks/useAuth'
 import { useOnboarding } from '../hooks/useOnboarding'
 import { useUpdater } from '../hooks/useUpdater'
 import { useConfigStore } from '../stores/configStore'
+import {
+  GeminiAPIClient,
+  OpenAIAPIClient,
+  type GeminiModel,
+  type OpenAIModel,
+} from '@guideai-dev/session-processing/ai-models'
 
 function SettingsPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user, logout } = useAuth()
-  const { aiApiKeys, setAiApiKey, deleteAiApiKey, systemConfig, updateSystemConfig } =
-    useConfigStore()
+  const {
+    aiApiKeys,
+    setAiApiKey,
+    deleteAiApiKey,
+    systemConfig,
+    updateSystemConfig,
+    setPreferredAiProvider,
+    setAiModel,
+    getAiModel,
+  } = useConfigStore()
   const { resetTour, hasCompletedTour } = useOnboarding()
   const {
     hasUpdate,
@@ -28,11 +43,73 @@ function SettingsPage() {
   } = useUpdater()
   const [showClaudeKey, setShowClaudeKey] = useState(false)
   const [showGeminiKey, setShowGeminiKey] = useState(false)
+  const [showOpenAiKey, setShowOpenAiKey] = useState(false)
   const [claudeKey, setClaudeKey] = useState(aiApiKeys.claude || '')
   const [geminiKey, setGeminiKey] = useState(aiApiKeys.gemini || '')
+  const [openAiKey, setOpenAiKey] = useState(aiApiKeys.openai || '')
+  const [preferredProvider, setPreferredProvider] = useState<
+    'auto' | 'claude' | 'gemini' | 'openai'
+  >(systemConfig.preferredAiProvider || 'auto')
+  const [geminiModel, setGeminiModel] = useState(getAiModel('gemini') || 'gemini-2.0-flash')
+  const [openaiModel, setOpenaiModel] = useState(getAiModel('openai') || 'gpt-4o-mini')
+  const [geminiModels, setGeminiModels] = useState<GeminiModel[]>([])
+  const [openaiModels, setOpenaiModels] = useState<OpenAIModel[]>([])
+  const [loadingGeminiModels, setLoadingGeminiModels] = useState(false)
+  const [loadingOpenaiModels, setLoadingOpenaiModels] = useState(false)
 
   const handleLogout = async () => {
     await logout()
+  }
+
+  const fetchGeminiModels = async (apiKey: string) => {
+    setLoadingGeminiModels(true)
+    try {
+      const client = new GeminiAPIClient({ apiKey, fetch: tauriFetch })
+      const models = await client.listModels()
+      // Filter to only show models that support generateContent
+      const chatModels = models.filter(m =>
+        m.supportedGenerationMethods.includes('generateContent')
+      )
+      setGeminiModels(chatModels)
+    } catch (error) {
+      console.error('Failed to fetch Gemini models:', error)
+      // Set default models if fetch fails
+      setGeminiModels([])
+    } finally {
+      setLoadingGeminiModels(false)
+    }
+  }
+
+  const fetchOpenAIModels = async (apiKey: string) => {
+    setLoadingOpenaiModels(true)
+    try {
+      const client = new OpenAIAPIClient({ apiKey, fetch: tauriFetch })
+      const models = await client.listModels()
+      // Filter to only show GPT models that support chat completions
+      // Exclude: instruct models, vision-only, audio, realtime, and responses-only models
+      const chatModels = models.filter(m => {
+        const id = m.id.toLowerCase()
+        return (
+          id.startsWith('gpt-') &&
+          !id.includes('instruct') &&
+          !id.includes('vision') &&
+          !id.includes('audio') &&
+          !id.includes('realtime') &&
+          !id.includes('codex') && // Codex models use different API
+          !id.includes('0125') && // Old snapshot IDs
+          !id.includes('0613') && // Old snapshot IDs
+          !id.includes('0314') && // Old snapshot IDs
+          !id.includes('0301') // Old snapshot IDs
+        )
+      })
+      setOpenaiModels(chatModels)
+    } catch (error) {
+      console.error('Failed to fetch OpenAI models:', error)
+      // Set default models if fetch fails
+      setOpenaiModels([])
+    } finally {
+      setLoadingOpenaiModels(false)
+    }
   }
 
   const handleRestartTour = () => {
@@ -50,6 +127,16 @@ function SettingsPage() {
       downloadAndInstall()
     }
   }, [location.state, hasUpdate, isDownloading, isInstalling, downloadAndInstall])
+
+  // Fetch available models when keys are configured
+  useEffect(() => {
+    if (aiApiKeys.gemini) {
+      fetchGeminiModels(aiApiKeys.gemini)
+    }
+    if (aiApiKeys.openai) {
+      fetchOpenAIModels(aiApiKeys.openai)
+    }
+  }, [aiApiKeys.gemini, aiApiKeys.openai])
 
   return (
     <div className="p-6">
@@ -229,13 +316,13 @@ function SettingsPage() {
                     <input
                       type={showClaudeKey ? 'text' : 'password'}
                       placeholder="sk-ant-..."
-                      className="input input-bordered w-full pr-20"
+                      className="input input-bordered w-full pr-10"
                       value={claudeKey}
                       onChange={e => setClaudeKey(e.target.value)}
                     />
                     <button
                       type="button"
-                      className="absolute right-2 top-1/2 -translate-y-1/2 btn btn-ghost btn-sm btn-square"
+                      className="absolute right-2 inset-y-0 my-auto h-8 w-8 flex items-center justify-center btn btn-ghost btn-xs"
                       onClick={() => setShowClaudeKey(!showClaudeKey)}
                     >
                       {showClaudeKey ? (
@@ -312,13 +399,13 @@ function SettingsPage() {
                     <input
                       type={showGeminiKey ? 'text' : 'password'}
                       placeholder="AIza..."
-                      className="input input-bordered w-full pr-20"
+                      className="input input-bordered w-full pr-10"
                       value={geminiKey}
                       onChange={e => setGeminiKey(e.target.value)}
                     />
                     <button
                       type="button"
-                      className="absolute right-2 top-1/2 -translate-y-1/2 btn btn-ghost btn-sm btn-square"
+                      className="absolute right-2 inset-y-0 my-auto h-8 w-8 flex items-center justify-center btn btn-ghost btn-xs"
                       onClick={() => setShowGeminiKey(!showGeminiKey)}
                     >
                       {showGeminiKey ? (
@@ -360,7 +447,10 @@ function SettingsPage() {
                   </div>
                   <button
                     className="btn btn-primary"
-                    onClick={() => setAiApiKey('gemini', geminiKey)}
+                    onClick={() => {
+                      setAiApiKey('gemini', geminiKey)
+                      fetchGeminiModels(geminiKey)
+                    }}
                     disabled={!geminiKey || geminiKey === aiApiKeys.gemini}
                   >
                     Save
@@ -382,6 +472,206 @@ function SettingsPage() {
                     <span className="label-text-alt text-success">✓ Gemini API key configured</span>
                   </label>
                 )}
+                {aiApiKeys.gemini && (
+                  <div className="form-control mt-2">
+                    <label className="label">
+                      <span className="label-text text-sm">Gemini Model</span>
+                      {loadingGeminiModels && (
+                        <span className="label-text-alt text-xs">
+                          <span className="loading loading-spinner loading-xs mr-1"></span>
+                          Loading models...
+                        </span>
+                      )}
+                    </label>
+                    <select
+                      className="select select-bordered select-sm w-full"
+                      value={geminiModel}
+                      onChange={e => {
+                        setGeminiModel(e.target.value)
+                        setAiModel('gemini', e.target.value)
+                      }}
+                      disabled={loadingGeminiModels}
+                    >
+                      {geminiModels.length > 0 ? (
+                        geminiModels.map(model => {
+                          // Extract model name from the full name (e.g., "models/gemini-2.0-flash" -> "gemini-2.0-flash")
+                          const modelId = model.name.replace('models/', '')
+                          return (
+                            <option key={model.name} value={modelId}>
+                              {model.displayName}
+                            </option>
+                          )
+                        })
+                      ) : (
+                        <>
+                          <option value="gemini-2.0-flash">Gemini 2.0 Flash (Default)</option>
+                          <option value="gemini-2.0-flash-lite">Gemini 2.0 Flash Lite</option>
+                          <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                          <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {/* OpenAI API Key */}
+              <div className="form-control">
+                <label className="label">
+                  <span className="label-text font-medium">OpenAI API Key</span>
+                  <span className="label-text-alt text-xs">Alternative to Claude & Gemini</span>
+                </label>
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <input
+                      type={showOpenAiKey ? 'text' : 'password'}
+                      placeholder="sk-proj-..."
+                      className="input input-bordered w-full pr-10"
+                      value={openAiKey}
+                      onChange={e => setOpenAiKey(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-2 inset-y-0 my-auto h-8 w-8 flex items-center justify-center btn btn-ghost btn-xs"
+                      onClick={() => setShowOpenAiKey(!showOpenAiKey)}
+                    >
+                      {showOpenAiKey ? (
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
+                          />
+                        </svg>
+                      ) : (
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => {
+                      setAiApiKey('openai', openAiKey)
+                      fetchOpenAIModels(openAiKey)
+                    }}
+                    disabled={!openAiKey || openAiKey === aiApiKeys.openai}
+                  >
+                    Save
+                  </button>
+                  {aiApiKeys.openai && (
+                    <button
+                      className="btn btn-error btn-outline"
+                      onClick={() => {
+                        deleteAiApiKey('openai')
+                        setOpenAiKey('')
+                      }}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                {aiApiKeys.openai && (
+                  <label className="label">
+                    <span className="label-text-alt text-success">✓ OpenAI API key configured</span>
+                  </label>
+                )}
+                {aiApiKeys.openai && (
+                  <div className="form-control mt-2">
+                    <label className="label">
+                      <span className="label-text text-sm">OpenAI Model</span>
+                      {loadingOpenaiModels && (
+                        <span className="label-text-alt text-xs">
+                          <span className="loading loading-spinner loading-xs mr-1"></span>
+                          Loading models...
+                        </span>
+                      )}
+                    </label>
+                    <select
+                      className="select select-bordered select-sm w-full"
+                      value={openaiModel}
+                      onChange={e => {
+                        setOpenaiModel(e.target.value)
+                        setAiModel('openai', e.target.value)
+                      }}
+                      disabled={loadingOpenaiModels}
+                    >
+                      {openaiModels.length > 0 ? (
+                        openaiModels.map(model => (
+                          <option key={model.id} value={model.id}>
+                            {model.id}
+                          </option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="gpt-4o-mini">GPT-4o Mini (Default)</option>
+                          <option value="gpt-4o">GPT-4o</option>
+                          <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                          <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {/* AI Provider Selection */}
+              <div className="form-control">
+                <label className="label">
+                  <span className="label-text font-medium">Preferred AI Provider</span>
+                  <span className="label-text-alt text-xs">
+                    Choose which model to use for AI tasks
+                  </span>
+                </label>
+                <select
+                  className="select select-bordered w-full"
+                  value={preferredProvider}
+                  onChange={e => {
+                    const value = e.target.value as 'auto' | 'claude' | 'gemini' | 'openai'
+                    setPreferredProvider(value)
+                    setPreferredAiProvider(value)
+                  }}
+                >
+                  <option value="auto">Auto (use first available: Claude → OpenAI → Gemini)</option>
+                  <option value="claude" disabled={!aiApiKeys.claude}>
+                    Claude {!aiApiKeys.claude && '(no key configured)'}
+                  </option>
+                  <option value="openai" disabled={!aiApiKeys.openai}>
+                    OpenAI {!aiApiKeys.openai && '(no key configured)'}
+                  </option>
+                  <option value="gemini" disabled={!aiApiKeys.gemini}>
+                    Gemini {!aiApiKeys.gemini && '(no key configured)'}
+                  </option>
+                </select>
+                <label className="label">
+                  <span className="label-text-alt">
+                    Auto mode prioritizes quality and reliability. Select a specific provider to
+                    always use that model when available.
+                  </span>
+                </label>
               </div>
 
               <div className="alert alert-info">
@@ -416,6 +706,17 @@ function SettingsPage() {
                         className="link"
                       >
                         makersuite.google.com
+                      </a>
+                    </li>
+                    <li>
+                      • OpenAI:{' '}
+                      <a
+                        href="https://platform.openai.com/api-keys"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="link"
+                      >
+                        platform.openai.com/api-keys
                       </a>
                     </li>
                   </ul>

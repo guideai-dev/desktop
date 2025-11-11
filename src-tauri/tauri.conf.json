@@ -49,6 +49,15 @@
               "allow": [
                 {
                   "url": "https://install.guideai.dev/*"
+                },
+                {
+                  "url": "https://api.anthropic.com/*"
+                },
+                {
+                  "url": "https://generativelanguage.googleapis.com/*"
+                },
+                {
+                  "url": "https://api.openai.com/*"
                 }
               ]
             },

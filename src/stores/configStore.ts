@@ -6,11 +6,19 @@ import type { ProviderConfig } from '../types/providers'
 interface AiApiKeys {
   claude?: string
   gemini?: string
+  openai?: string
+}
+
+interface AiModelConfig {
+  gemini?: string
+  openai?: string
 }
 
 interface SystemConfig {
   aiProcessingDelayMinutes: number
   coreMetricsDebounceSeconds: number
+  preferredAiProvider?: 'claude' | 'gemini' | 'openai' | 'auto'
+  aiModels?: AiModelConfig
 }
 
 interface ConfigState {
@@ -26,13 +34,16 @@ interface ConfigState {
   deleteProviderConfig: (providerId: string) => Promise<void>
 
   // AI API key actions
-  setAiApiKey: (provider: 'claude' | 'gemini', apiKey: string) => void
-  deleteAiApiKey: (provider: 'claude' | 'gemini') => void
-  getAiApiKey: (provider: 'claude' | 'gemini') => string | undefined
+  setAiApiKey: (provider: 'claude' | 'gemini' | 'openai', apiKey: string) => void
+  deleteAiApiKey: (provider: 'claude' | 'gemini' | 'openai') => void
+  getAiApiKey: (provider: 'claude' | 'gemini' | 'openai') => string | undefined
 
   // System config actions
   updateSystemConfig: (config: Partial<SystemConfig>) => void
   getSystemConfig: () => SystemConfig
+  setPreferredAiProvider: (provider: 'claude' | 'gemini' | 'openai' | 'auto') => void
+  setAiModel: (provider: 'gemini' | 'openai', model: string) => void
+  getAiModel: (provider: 'gemini' | 'openai') => string | undefined
 
   clearError: () => void
 }
@@ -91,13 +102,13 @@ export const useConfigStore = create<ConfigState>()(
         }
       },
 
-      setAiApiKey: (provider: 'claude' | 'gemini', apiKey: string) => {
+      setAiApiKey: (provider: 'claude' | 'gemini' | 'openai', apiKey: string) => {
         set(state => ({
           aiApiKeys: { ...state.aiApiKeys, [provider]: apiKey },
         }))
       },
 
-      deleteAiApiKey: (provider: 'claude' | 'gemini') => {
+      deleteAiApiKey: (provider: 'claude' | 'gemini' | 'openai') => {
         set(state => {
           const newKeys = { ...state.aiApiKeys }
           delete newKeys[provider]
@@ -105,7 +116,7 @@ export const useConfigStore = create<ConfigState>()(
         })
       },
 
-      getAiApiKey: (provider: 'claude' | 'gemini') => {
+      getAiApiKey: (provider: 'claude' | 'gemini' | 'openai') => {
         return get().aiApiKeys[provider]
       },
 
@@ -117,6 +128,25 @@ export const useConfigStore = create<ConfigState>()(
 
       getSystemConfig: () => {
         return get().systemConfig
+      },
+
+      setPreferredAiProvider: (provider: 'claude' | 'gemini' | 'openai' | 'auto') => {
+        set(state => ({
+          systemConfig: { ...state.systemConfig, preferredAiProvider: provider },
+        }))
+      },
+
+      setAiModel: (provider: 'gemini' | 'openai', model: string) => {
+        set(state => ({
+          systemConfig: {
+            ...state.systemConfig,
+            aiModels: { ...state.systemConfig.aiModels, [provider]: model },
+          },
+        }))
+      },
+
+      getAiModel: (provider: 'gemini' | 'openai') => {
+        return get().systemConfig.aiModels?.[provider]
       },
 
       clearError: () => set({ error: null }),
