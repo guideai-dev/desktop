@@ -1013,6 +1013,7 @@ pub async fn scan_historical_sessions(
             &session.file_path,
             session.file_size,
             None, // Hash will be calculated during upload
+            true, // is_historical - rescan discovers historical sessions
         ) {
             Ok(_) => {
                 inserted_count += 1;

@@ -9,7 +9,22 @@ type TimingResult = Result<
     Box<dyn std::error::Error + Send + Sync>,
 >;
 
+/// Helper function to query existing git data for a session
+fn get_existing_git_data(session_id: &str) -> Option<(Option<String>, Option<String>, Option<String>)> {
+    crate::database::with_connection_mut(|conn| {
+        conn.query_row(
+            "SELECT git_branch, first_commit_hash, latest_commit_hash FROM agent_sessions WHERE session_id = ?",
+            rusqlite::params![session_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+    }).ok()
+}
+
 /// Insert or update a session in the local database immediately (called by all provider watchers)
+///
+/// # Parameters
+/// * `is_historical` - If true, preserves existing git data or sets to None for new sessions.
+///   If false, captures current git state (normal behavior for live sessions).
 pub fn insert_session_immediately(
     provider_id: &str,
     project_name: &str,
@@ -17,6 +32,7 @@ pub fn insert_session_immediately(
     file_path: &PathBuf,
     file_size: u64,
     file_hash: Option<String>,
+    is_historical: bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let file_name = file_path
         .file_name()
@@ -26,13 +42,35 @@ pub fn insert_session_immediately(
     // Extract CWD from file
     let cwd = extract_cwd_from_file(provider_id, file_path);
 
-    // Extract git info if CWD is available
-    let (git_branch, git_commit) = if let Some(ref cwd_path) = cwd {
-        let branch = crate::project_metadata::extract_git_branch(cwd_path);
-        let commit = crate::project_metadata::extract_git_commit_hash(cwd_path);
-        (branch, commit)
+    // Determine git info based on whether this is a historical scan
+    let (git_branch, first_commit, latest_commit) = if is_historical {
+        // For historical sessions, check if we already have git data in the database
+        if let Some((existing_branch, existing_first_commit, existing_latest_commit)) = get_existing_git_data(session_id) {
+            // Preserve existing git data from when session was live
+            let _ = log_debug(
+                provider_id,
+                &format!("Preserving existing git data for historical session {}", session_id),
+            );
+            // Preserve both first and latest commit hashes from database
+            (existing_branch, existing_first_commit, existing_latest_commit)
+        } else {
+            // New historical session discovered - don't capture current git state (would be inaccurate)
+            let _ = log_debug(
+                provider_id,
+                &format!("New historical session {}, not capturing git state", session_id),
+            );
+            (None, None, None)
+        }
     } else {
-        (None, None)
+        // Live session - capture current git state (existing behavior)
+        if let Some(ref cwd_path) = cwd {
+            let branch = crate::project_metadata::extract_git_branch(cwd_path);
+            let commit = crate::project_metadata::extract_git_commit_hash(cwd_path);
+            // For live sessions, first and latest are the same at creation
+            (branch, commit.clone(), commit)
+        } else {
+            (None, None, None)
+        }
     };
 
     // Parse session timing from file
@@ -62,8 +100,8 @@ pub fn insert_session_immediately(
         duration,
         cwd.as_deref(),
         git_branch.as_deref(),
-        git_commit.as_deref(), // first_commit_hash
-        git_commit.as_deref(), // latest_commit_hash (same as first at creation)
+        first_commit.as_deref(), // first_commit_hash
+        latest_commit.as_deref(), // latest_commit_hash
     );
 
     // Handle insert result - if unique constraint violation, update instead
@@ -115,7 +153,7 @@ pub fn insert_session_immediately(
                     end_time,
                     cwd.as_deref(),
                     git_branch.as_deref(),
-                    git_commit.as_deref(), // latest_commit_hash (updates on each change)
+                    latest_commit.as_deref(), // latest_commit_hash
                 )?;
 
                 let _ = log_debug(

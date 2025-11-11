@@ -72,6 +72,7 @@ impl DatabaseEventHandler {
                     file_path,
                     *file_size,
                     None, // file_hash will be calculated during upload
+                    false, // is_historical - watcher events are for live sessions
                 )
                 .map_err(|e| e.to_string())?;
             }
